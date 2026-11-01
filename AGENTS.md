@@ -1,12 +1,12 @@
-# Agent notes for Tabulia
+# Agent notes for Figger
 
 Tier: **Tool** (one HTML file, one human role, no server). Re-tier to Product in writing if it gains live collaboration, a second role or a server.
 Direction: **Dense** (a workbench for hours of work). UI is light by default and does not follow the system dark mode.
 
 ## Rules
-- One page, native ES modules in `src/`, assembled into a single `tabulia.html` by a build script (the Draft pattern). No CDN at runtime. Vendored libraries are pinned with licences.
+- One page, native ES modules in `src/`, assembled into a single `figger.html` by a build script (the Draft pattern). No CDN at runtime. Vendored libraries are pinned with licences.
 - Data stays on the user's disk. No account, no telemetry.
-- Every UI action is a command in one registry (id, parameter schema, undo flag). Menus, keys, the `window.tabulia` agent face and any MCP bridge call the same commands.
+- Every UI action is a command in one registry (id, parameter schema, undo flag). Menus, keys, the `window.figger` agent face and any MCP bridge call the same commands.
 - Plan lives in `plan/` (a symlink outside git). Read `plan/pending.md` first.
 - FigCraft is the reference system. Port its ideas with attribution; do not copy Figma's proprietary assets.
 
