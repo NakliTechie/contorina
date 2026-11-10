@@ -1,0 +1,747 @@
+{
+  "accepts": [
+    {
+      "action": "open",
+      "label": "Open in Figger",
+      "extensions": [
+        ".figger.json"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "node.create",
+      "description": "Create a layer (frame, rect, ellipse, line, text or instance) at a position inside a parent frame or on the canvas.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "frame",
+              "rect",
+              "ellipse",
+              "line",
+              "text"
+            ]
+          },
+          "parent": {
+            "type": "string",
+            "description": "Parent frame id; null or omitted for the canvas"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "w": {
+            "type": "number"
+          },
+          "h": {
+            "type": "number"
+          },
+          "props": {
+            "type": "object",
+            "description": "Any other layer properties (fill, text, name, ...)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Optional id for the new layer"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "node.set",
+      "description": "Set properties on layers: geometry (x, y, w, h, rotation), fill, stroke, strokeWidth, radius, opacity, text and font properties, name, clip.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "props": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "props"
+        ]
+      }
+    },
+    {
+      "name": "node.move",
+      "description": "Move layers by (dx, dy) in canvas units, optionally into another frame (parent) or onto the canvas (parent null). In an auto-layout frame the move reorders.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "dx": {
+            "type": "number"
+          },
+          "dy": {
+            "type": "number"
+          },
+          "parent": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.nudge",
+      "description": "Nudge selection",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "dx": {
+            "type": "number"
+          },
+          "dy": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.reparent",
+      "description": "Put layers into a frame (or the canvas) at a child index, keeping their position on screen.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "index": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.rename",
+      "description": "Rename layer",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "edit.delete",
+      "description": "Delete layers and everything inside them.",
+      "scope": "destructive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "edit.duplicate",
+      "description": "Duplicate",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.insertTree",
+      "description": "Insert copied layer trees ({rootIds, nodes}) into a frame or the canvas, offset by (dx, dy).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "tree": {
+            "type": "object"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "dx": {
+            "type": "number"
+          },
+          "dy": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "tree"
+        ]
+      }
+    },
+    {
+      "name": "node.setVisible",
+      "description": "Show or hide layers",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "value": {
+            "type": "boolean",
+            "description": "Omit to toggle"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.setLocked",
+      "description": "Lock or unlock layers",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "value": {
+            "type": "boolean",
+            "description": "Omit to toggle"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.order",
+      "description": "Arrange layers",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "front",
+              "back",
+              "forward",
+              "backward"
+            ]
+          }
+        },
+        "required": [
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "arrange.front",
+      "description": "Bring to front",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "arrange.back",
+      "description": "Send to back",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "arrange.forward",
+      "description": "Bring forward",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "arrange.backward",
+      "description": "Send backward",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "node.frameSelection",
+      "description": "Wrap the selected layers in a new frame.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.ungroup",
+      "description": "Remove frame (keep contents)",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "layout.add",
+      "description": "Give a frame auto layout, or wrap the selected layers in a new auto-layout frame.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "row",
+              "column"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "layout.remove",
+      "description": "Remove auto layout",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "layout.set",
+      "description": "Change auto layout settings: mode (row, column, none), wrap, gap, pad [top, right, bottom, left], align (start, center, end, stretch), justify (start, center, end, between).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "layout": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "layout"
+        ]
+      }
+    },
+    {
+      "name": "node.setSizing",
+      "description": "Set resizing (hug, fill, fixed)",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "h": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "hug",
+              "fill"
+            ]
+          },
+          "v": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "hug",
+              "fill"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "node.setConstraints",
+      "description": "Set constraints",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "h": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "leftright",
+              "center",
+              "scale"
+            ]
+          },
+          "v": {
+            "type": "string",
+            "enum": [
+              "top",
+              "bottom",
+              "topbottom",
+              "center",
+              "scale"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "text.set",
+      "description": "Set text",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "doc.rename",
+      "description": "Rename document",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "component.create",
+      "description": "Turn the selected frame into a main component (wrapping other layers in a frame first).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "component.instance",
+      "description": "Place an instance of a main component (the selected one by default) beside it, or at (x, y) in a parent.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "mainId": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "component.detach",
+      "description": "Detach instance",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "component.combineVariants",
+      "description": "Put the selected main components into one component set; names like \"Size=Large, State=Hover\" become variant properties.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "instance.setVariant",
+      "description": "Set variant property",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "prop": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prop",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "instance.swap",
+      "description": "Swap instance",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mainId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mainId"
+        ]
+      }
+    },
+    {
+      "name": "instance.reset",
+      "description": "Reset all overrides",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "style.create",
+      "description": "Create a shared style: {type:\"color\", name, value:\"#RRGGBB\"} or {type:\"text\", name, fontSize, fontFamily, fontWeight, lineHeight}.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "color",
+              "text"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "fontSize": {
+            "type": "number"
+          },
+          "fontFamily": {
+            "type": "string"
+          },
+          "fontWeight": {
+            "type": "number"
+          },
+          "lineHeight": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "style.fromSelection",
+      "description": "Make a shared style from the first selected layer's fill, stroke or text properties and apply it to the selection.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "stroke",
+              "text"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "style.update",
+      "description": "Edit style",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "patch": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "patch"
+        ]
+      }
+    },
+    {
+      "name": "style.delete",
+      "description": "Delete a shared style; layers that used it keep its current values.",
+      "scope": "destructive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "node.applyStyle",
+      "description": "Apply a shared style to layers (kind fill, stroke or text), or detach it with styleId null (the layer keeps the values).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fill",
+              "stroke",
+              "text"
+            ]
+          },
+          "styleId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "styleId"
+        ]
+      }
+    }
+  ],
+  "_note": "Document commands only; view, selection and file commands register at run time from the same registry."
+}

@@ -1,0 +1,25 @@
+# Workers static assets upload everything under the repo root unless listed here.
+# Served: index.html, social.png, commands.json, _headers.
+.git
+.github
+.gitignore
+.assetsignore
+.claude
+.wrangler
+.worktrees
+wrangler.jsonc
+node_modules
+plan
+src
+tests
+spike
+scripts
+marketing
+tmp
+package.json
+package-lock.json
+build.mjs
+AGENTS.md
+README.md
+NOTICE
+.DS_Store

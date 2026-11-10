@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-11",
+  "machine": "MacBook Pro M4 Pro, 24 GB; Chrome 157; canvas 2400x1600 at devicePixelRatio 2; tab in the background while timing",
+  "label": "observed, not a benchmark",
+  "layers": 10000,
+  "runs": 30,
+  "fullRenderMedianMs": 104.7,
+  "fullRenderMaxMs": 141.3,
+  "editOneLayerTxMedianMs": 3.8,
+  "moveOneLayerFullRedrawMedianMs": 93,
+  "moveOneLayerDirtyRectMedianMs": 8.5,
+  "reference": { "system": "FigCraft v0.14.0 (tiny-skia, CPU)", "fullRenderMs": "7-15", "moveOneLayerMs": 0.2, "source": "FigCraft docs, owner's Mac, synthetic" }
+}
