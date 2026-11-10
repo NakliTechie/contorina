@@ -24,12 +24,17 @@ await import('./src/commands-vector.js');
 await import('./src/commands-layer4.js');
 await import('./src/commands-layer5.js');
 await import('./src/commands-layer6.js');
-const { all, inputSchema } = await import('./src/registry.js');
-const commands = all().map((c) => ({ name: c.id, description: c.description || c.label, scope: c.scope, input: inputSchema(c) }));
+await import('./src/main.js'); // registers the app-shell commands too; it starts no UI without a DOM
+// The app shell registers view, selection and file commands too; import main's registrations by
+// loading the same modules the page loads, minus the DOM. The rail entries come from host.js, so
+// commands.json and the live registration cannot differ.
+const { railEntries, RAIL_LIMIT } = await import('./src/host.js');
+const entries = railEntries();
+if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; Figger would register ${entries.length}`);
+const commands = entries.map(({ name, description, scope, input }) => ({ name, description, scope, input }));
 const manifest = {
   accepts: [{ action: 'open', label: 'Open in Figger', extensions: ['.figger.json'] }],
   commands,
-  _note: 'Document commands only; view, selection and file commands register at run time from the same registry.',
 };
 writeFileSync('commands.json', JSON.stringify(manifest, null, 2) + '\n');
-console.log(`index.html ${(html.length / 1024).toFixed(1)} KB · commands.json ${commands.length} document commands`);
+console.log(`index.html ${(html.length / 1024).toFixed(1)} KB · commands.json ${commands.length} rail entries`);

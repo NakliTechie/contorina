@@ -25,10 +25,11 @@ export function pathOf(n) {
   switch (n.type) {
     case 'ellipse': p.ellipse(n.w / 2, n.h / 2, Math.max(0, n.w / 2), Math.max(0, n.h / 2), 0, 0, Math.PI * 2); return p;
     case 'line': p.moveTo(0, 0); p.lineTo(n.w, 0); return p;
-    case 'vector': case 'polygon': case 'star': {
+    case 'vector': case 'boolean': case 'polygon': case 'star': {
       const d = shapeD(n);
-      const vw = n.type === 'vector' ? n.vw || n.w || 1 : 1, vh = n.type === 'vector' ? n.vh || n.h || 1 : 1;
-      const sx = n.type === 'vector' ? n.w / vw : n.w, sy = n.type === 'vector' ? n.h / vh : n.h;
+      if (!d) return p;
+      const vw = n.type === 'vector' || n.type === 'boolean' ? n.vw || n.w || 1 : 1, vh = n.type === 'vector' || n.type === 'boolean' ? n.vh || n.h || 1 : 1;
+      const sx = n.type === 'vector' || n.type === 'boolean' ? n.w / vw : n.w, sy = n.type === 'vector' || n.type === 'boolean' ? n.h / vh : n.h;
       p.addPath(cachedPath(d), new DOMMatrix([sx || 1e-6, 0, 0, sy || 1e-6, 0, 0]));
       return p;
     }
@@ -145,7 +146,7 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
     ctx.restore();
   }
 
-  if (n.children && n.children.length) {
+  if (n.children && n.children.length && n.type !== 'boolean') {
     ctx.save();
     if (n.clip !== false) ctx.clip(path, rule);
     ctx.filter = 'none';

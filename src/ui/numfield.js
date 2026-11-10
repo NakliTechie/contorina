@@ -117,7 +117,7 @@ export function numberField(opts) {
 
 // Toggles you can drag across to set them all to the first one's new value (layers eye and lock).
 let sweep = null;
-window.addEventListener('pointerup', () => { sweep = null; });
+if (typeof window !== 'undefined') window.addEventListener('pointerup', () => { sweep = null; });
 export function sweepToggle(el, get, set) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();

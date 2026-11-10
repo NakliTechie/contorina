@@ -27,6 +27,7 @@ export function starD(points, inner) {
 }
 export function shapeD(n) {
   if (n.type === 'polygon') return polygonD(n.sides);
+  if (n.type === 'boolean') return n.d || '';
   if (n.type === 'star') return starD(n.points, n.inner);
   return n.d || '';
 }
@@ -42,7 +43,7 @@ export function outlineD(n) {
       return `M${cx + rx} ${cy} C${cx + rx} ${cy + ry * K} ${cx + rx * K} ${cy + ry} ${cx} ${cy + ry} C${cx - rx * K} ${cy + ry} ${cx - rx} ${cy + ry * K} ${cx - rx} ${cy} C${cx - rx} ${cy - ry * K} ${cx - rx * K} ${cy - ry} ${cx} ${cy - ry} C${cx + rx * K} ${cy - ry} ${cx + rx} ${cy - ry * K} ${cx + rx} ${cy} Z`;
     }
     case 'line': return `M0 0 L${w} 0`;
-    case 'vector': return scaleD(n.d || '', w / (n.vw || w || 1), h / (n.vh || h || 1));
+    case 'vector': case 'boolean': return scaleD(n.d || '', w / (n.vw || w || 1), h / (n.vh || h || 1));
     case 'polygon': case 'star': return scaleD(shapeD(n), w, h);
     case 'text': return `M0 0 L${w} 0 L${w} ${h} L0 ${h} Z`;
     default: {

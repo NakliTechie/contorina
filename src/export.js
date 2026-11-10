@@ -105,7 +105,7 @@ export function toSVG(doc, ids) {
     }
     const fillSvg = n.type === 'line' ? '' : fills(n, fill);
     const strokeSvg = strokeAttrs(n, stroke) ? shape(n, ' fill="none"' + strokeAttrs(n, stroke)) : '';
-    if (!n.children || !n.children.length) return `<g ${head}>${fillSvg}${strokeSvg}</g>`;
+    if (!n.children || !n.children.length || n.type === 'boolean') return `<g ${head}>${fillSvg}${strokeSvg}</g>`;
     let kids = n.children.map((c) => node(c, localMatrix(doc.nodes[c] || { x: 0, y: 0, w: 0, h: 0 }))).join('');
     if (n.clip !== false) {
       const cid = uid();

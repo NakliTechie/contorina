@@ -10,1490 +10,619 @@
   ],
   "commands": [
     {
-      "name": "node.create",
-      "description": "Create a layer (frame, rect, ellipse, line, text or instance) at a position inside a parent frame or on the canvas.",
+      "name": "insert.write",
+      "description": "Figger insert (write). Pass command and params; commands: node.create (Create layer), asset.add (Add image asset), image.place (Place image), vector.create (Create vector). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "type": {
+          "command": {
             "type": "string",
             "enum": [
-              "frame",
-              "rect",
-              "ellipse",
-              "line",
-              "text",
-              "vector",
-              "polygon",
-              "star"
-            ]
+              "node.create",
+              "asset.add",
+              "image.place",
+              "vector.create"
+            ],
+            "description": "Which Figger command to run"
           },
-          "parent": {
-            "type": "string",
-            "description": "Parent frame id; null or omitted for the canvas"
-          },
-          "x": {
-            "type": "number"
-          },
-          "y": {
-            "type": "number"
-          },
-          "w": {
-            "type": "number"
-          },
-          "h": {
-            "type": "number"
-          },
-          "props": {
+          "params": {
             "type": "object",
-            "description": "Any other layer properties (fill, text, name, ...)"
-          },
-          "id": {
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "edit.write",
+      "description": "Figger edit (write). Pass command and params; commands: node.set (Set layer properties), node.move (Move layers), node.nudge (Nudge selection), node.reparent (Move layers into), node.rename (Rename layer), edit.duplicate (Duplicate), node.insertTree (Insert layers), node.setVisible (Show or hide layers), node.setLocked (Lock or unlock layers), vector.setPath (Edit vector path), edit.undo (Undo), edit.redo (Redo). Call help.read for a command's parameters.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
             "type": "string",
-            "description": "Optional id for the new layer"
+            "enum": [
+              "node.set",
+              "node.move",
+              "node.nudge",
+              "node.reparent",
+              "node.rename",
+              "edit.duplicate",
+              "node.insertTree",
+              "node.setVisible",
+              "node.setLocked",
+              "vector.setPath",
+              "edit.undo",
+              "edit.redo"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "type"
+          "command"
         ]
       }
     },
     {
-      "name": "node.set",
-      "description": "Set properties on layers: geometry (x, y, w, h, rotation), fill, stroke, strokeWidth, radius, opacity, text and font properties, name, clip.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "props": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "props"
-        ]
-      }
-    },
-    {
-      "name": "node.move",
-      "description": "Move layers by (dx, dy) in canvas units, optionally into another frame (parent) or onto the canvas (parent null). In an auto-layout frame the move reorders.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "dx": {
-            "type": "number"
-          },
-          "dy": {
-            "type": "number"
-          },
-          "parent": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.nudge",
-      "description": "Nudge selection",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "dx": {
-            "type": "number"
-          },
-          "dy": {
-            "type": "number"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.reparent",
-      "description": "Put layers into a frame (or the canvas) at a child index, keeping their position on screen.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "index": {
-            "type": "number"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.rename",
-      "description": "Rename layer",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "edit.delete",
-      "description": "Delete layers and everything inside them.",
+      "name": "edit.destructive",
+      "description": "Figger edit (destructive). Pass command and params; commands: edit.delete (Delete). Call help.read for a command's parameters.",
       "scope": "destructive",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "edit.duplicate",
-      "description": "Duplicate",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.insertTree",
-      "description": "Insert copied layer trees ({rootIds, nodes}) into a frame or the canvas, offset by (dx, dy).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "tree": {
-            "type": "object"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "dx": {
-            "type": "number"
-          },
-          "dy": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "tree"
-        ]
-      }
-    },
-    {
-      "name": "node.setVisible",
-      "description": "Show or hide layers",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "value": {
-            "type": "boolean",
-            "description": "Omit to toggle"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.setLocked",
-      "description": "Lock or unlock layers",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "value": {
-            "type": "boolean",
-            "description": "Omit to toggle"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.order",
-      "description": "Arrange layers",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "to": {
+          "command": {
             "type": "string",
             "enum": [
-              "front",
-              "back",
-              "forward",
-              "backward"
-            ]
+              "edit.delete"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "to"
+          "command"
         ]
       }
     },
     {
-      "name": "arrange.front",
-      "description": "Bring to front",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "arrange.back",
-      "description": "Send to back",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "arrange.forward",
-      "description": "Bring forward",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "arrange.backward",
-      "description": "Send backward",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "node.frameSelection",
-      "description": "Wrap the selected layers in a new frame.",
+      "name": "arrange.write",
+      "description": "Figger arrange (write). Pass command and params; commands: node.order (Arrange layers), arrange.front (Bring to front), arrange.back (Send to back), arrange.forward (Bring forward), arrange.backward (Send backward), node.frameSelection (Frame selection), node.ungroup (Remove frame (keep contents)), node.flatten (Flatten to vector), boolean.apply (Boolean operation), boolean.group (Boolean group (live)), boolean.setOp (Change boolean operation), boolean.union (Boolean: Union), boolean.subtract (Boolean: Subtract), boolean.intersect (Boolean: Intersect), boolean.exclude (Boolean: Exclude). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "node.ungroup",
-      "description": "Remove frame (keep contents)",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "layout.add",
-      "description": "Give a frame auto layout, or wrap the selected layers in a new auto-layout frame.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "mode": {
+          "command": {
             "type": "string",
             "enum": [
-              "row",
-              "column"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "name": "layout.remove",
-      "description": "Remove auto layout",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "layout.set",
-      "description": "Change auto layout settings: mode (row, column, none), wrap, gap, pad [top, right, bottom, left], align (start, center, end, stretch), justify (start, center, end, between).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
+              "node.order",
+              "arrange.front",
+              "arrange.back",
+              "arrange.forward",
+              "arrange.backward",
+              "node.frameSelection",
+              "node.ungroup",
+              "node.flatten",
+              "boolean.apply",
+              "boolean.group",
+              "boolean.setOp",
+              "boolean.union",
+              "boolean.subtract",
+              "boolean.intersect",
+              "boolean.exclude"
+            ],
+            "description": "Which Figger command to run"
           },
-          "layout": {
-            "type": "object"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "layout"
+          "command"
         ]
       }
     },
     {
-      "name": "node.setSizing",
-      "description": "Set resizing (hug, fill, fixed)",
+      "name": "layout.write",
+      "description": "Figger layout (write). Pass command and params; commands: layout.add (Add auto layout), layout.remove (Remove auto layout), layout.set (Set auto layout), node.setSizing (Set resizing (hug, fill, fixed)), node.setConstraints (Set constraints), layout.setGrids (Set layout grids), node.setMinMax (Set min and max size). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "h": {
+          "command": {
             "type": "string",
             "enum": [
-              "fixed",
-              "hug",
-              "fill"
-            ]
+              "layout.add",
+              "layout.remove",
+              "layout.set",
+              "node.setSizing",
+              "node.setConstraints",
+              "layout.setGrids",
+              "node.setMinMax"
+            ],
+            "description": "Which Figger command to run"
           },
-          "v": {
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "text.write",
+      "description": "Figger text (write). Pass command and params; commands: text.set (Set text), text.styleRange (Style part of a text). Call help.read for a command's parameters.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
             "type": "string",
             "enum": [
-              "fixed",
-              "hug",
-              "fill"
-            ]
+              "text.set",
+              "text.styleRange"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
-        }
+        },
+        "required": [
+          "command"
+        ]
       }
     },
     {
-      "name": "node.setConstraints",
-      "description": "Set constraints",
+      "name": "file.write",
+      "description": "Figger file (write). Pass command and params; commands: doc.rename (Rename document). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "h": {
+          "command": {
             "type": "string",
             "enum": [
-              "left",
-              "right",
-              "leftright",
-              "center",
-              "scale"
-            ]
+              "doc.rename"
+            ],
+            "description": "Which Figger command to run"
           },
-          "v": {
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "components.write",
+      "description": "Figger components (write). Pass command and params; commands: component.create (Create component), component.instance (Create instance), component.detach (Detach instance), component.combineVariants (Combine as variants), instance.setVariant (Set variant property), instance.swap (Swap instance), instance.reset (Reset all overrides), component.addProp (Add component property), component.removeProp (Remove component property), instance.setProp (Set instance property). Call help.read for a command's parameters.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
             "type": "string",
             "enum": [
-              "top",
-              "bottom",
-              "topbottom",
-              "center",
-              "scale"
-            ]
-          }
-        }
-      }
-    },
-    {
-      "name": "text.set",
-      "description": "Set text",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
+              "component.create",
+              "component.instance",
+              "component.detach",
+              "component.combineVariants",
+              "instance.setVariant",
+              "instance.swap",
+              "instance.reset",
+              "component.addProp",
+              "component.removeProp",
+              "instance.setProp"
+            ],
+            "description": "Which Figger command to run"
           },
-          "text": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "id",
-          "text"
+          "command"
         ]
       }
     },
     {
-      "name": "text.styleRange",
-      "description": "Style characters [start, end) of a text layer: fontWeight, fontSize, italic, fill (#hex), decoration (underline, strike); null removes a key.",
+      "name": "styles.write",
+      "description": "Figger styles (write). Pass command and params; commands: style.create (Create style), style.fromSelection (Create style from selection), style.update (Edit style), node.applyStyle (Apply style). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
-          "start": {
-            "type": "number"
-          },
-          "end": {
-            "type": "number"
-          },
-          "style": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "id",
-          "start",
-          "end",
-          "style"
-        ]
-      }
-    },
-    {
-      "name": "doc.rename",
-      "description": "Rename document",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "component.create",
-      "description": "Turn the selected frame into a main component (wrapping other layers in a frame first).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "component.instance",
-      "description": "Place an instance of a main component (the selected one by default) beside it, or at (x, y) in a parent.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "mainId": {
-            "type": "string"
-          },
-          "x": {
-            "type": "number"
-          },
-          "y": {
-            "type": "number"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "component.detach",
-      "description": "Detach instance",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "component.combineVariants",
-      "description": "Put the selected main components into one component set; names like \"Size=Large, State=Hover\" become variant properties.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "instance.setVariant",
-      "description": "Set variant property",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "prop": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "prop",
-          "value"
-        ]
-      }
-    },
-    {
-      "name": "instance.swap",
-      "description": "Swap instance",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "mainId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "mainId"
-        ]
-      }
-    },
-    {
-      "name": "instance.reset",
-      "description": "Reset all overrides",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "style.create",
-      "description": "Create a shared style: {type:\"color\", name, value:\"#RRGGBB\"} or {type:\"text\", name, fontSize, fontFamily, fontWeight, lineHeight}.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "type": {
+          "command": {
             "type": "string",
             "enum": [
-              "color",
-              "text",
-              "effect"
-            ]
+              "style.create",
+              "style.fromSelection",
+              "style.update",
+              "node.applyStyle"
+            ],
+            "description": "Which Figger command to run"
           },
-          "name": {
-            "type": "string"
-          },
-          "value": {},
-          "fontSize": {
-            "type": "number"
-          },
-          "fontFamily": {
-            "type": "string"
-          },
-          "fontWeight": {
-            "type": "number"
-          },
-          "lineHeight": {
-            "type": "number"
-          },
-          "effects": {
-            "type": "array"
-          },
-          "id": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "type",
-          "name"
+          "command"
         ]
       }
     },
     {
-      "name": "style.fromSelection",
-      "description": "Make a shared style from the first selected layer's fill, stroke or text properties and apply it to the selection.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "fill",
-              "stroke",
-              "text",
-              "effect"
-            ]
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "style.update",
-      "description": "Edit style",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "patch": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "id",
-          "patch"
-        ]
-      }
-    },
-    {
-      "name": "style.delete",
-      "description": "Delete a shared style; layers that used it keep its current values.",
+      "name": "styles.destructive",
+      "description": "Figger styles (destructive). Pass command and params; commands: style.delete (Delete style). Call help.read for a command's parameters.",
       "scope": "destructive",
       "input": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      }
-    },
-    {
-      "name": "node.applyStyle",
-      "description": "Apply a shared style to layers (kind fill, stroke or text), or detach it with styleId null (the layer keeps the values).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "kind": {
+          "command": {
             "type": "string",
             "enum": [
-              "fill",
-              "stroke",
-              "text",
-              "effect"
-            ]
+              "style.delete"
+            ],
+            "description": "Which Figger command to run"
           },
-          "styleId": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "kind",
-          "styleId"
+          "command"
         ]
       }
     },
     {
-      "name": "asset.add",
-      "description": "Store an image (base64 data, MIME type) in the document and return its asset id.",
+      "name": "variables.write",
+      "description": "Figger variables (write). Pass command and params; commands: variable.createCollection (New variable collection), variable.addMode (Add variable mode), variable.renameMode (Rename variable mode), variable.create (Create variable), variable.set (Set variable value), variable.rename (Rename variable), node.bindVariable (Bind variable), node.setMode (Set variable mode). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "mime": {
-            "type": "string"
-          },
-          "data": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "w": {
-            "type": "number"
-          },
-          "h": {
-            "type": "number"
-          },
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "mime",
-          "data"
-        ]
-      }
-    },
-    {
-      "name": "image.place",
-      "description": "Place a stored image asset as a rectangle with an image fill at (x, y), at its natural size unless w and h are given.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "asset": {
-            "type": "string"
-          },
-          "x": {
-            "type": "number"
-          },
-          "y": {
-            "type": "number"
-          },
-          "w": {
-            "type": "number"
-          },
-          "h": {
-            "type": "number"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset"
-        ]
-      }
-    },
-    {
-      "name": "vector.create",
-      "description": "Create a vector layer from SVG path data given in the parent frame's coordinates (or canvas coordinates with no parent).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "d": {
-            "type": "string"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "props": {
-            "type": "object"
-          },
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "d"
-        ]
-      }
-    },
-    {
-      "name": "vector.setPath",
-      "description": "Replace a vector layer's path; d is in the layer's own units (0..w, 0..h before the edit). The layer box refits to the new path.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "d": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "d"
-        ]
-      }
-    },
-    {
-      "name": "node.flatten",
-      "description": "Turn shapes into editable vector paths (rotation is baked into the path).",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          }
-        }
-      }
-    },
-    {
-      "name": "boolean.apply",
-      "description": "Combine shapes into one vector: union, subtract (from the bottom-most), intersect or exclude.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "op": {
+          "command": {
             "type": "string",
             "enum": [
-              "union",
-              "subtract",
-              "intersect",
-              "exclude"
-            ]
+              "variable.createCollection",
+              "variable.addMode",
+              "variable.renameMode",
+              "variable.create",
+              "variable.set",
+              "variable.rename",
+              "node.bindVariable",
+              "node.setMode"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "op"
+          "command"
         ]
       }
     },
     {
-      "name": "boolean.union",
-      "description": "Boolean: Union",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "boolean.subtract",
-      "description": "Boolean: Subtract",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "boolean.intersect",
-      "description": "Boolean: Intersect",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "boolean.exclude",
-      "description": "Boolean: Exclude",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "variable.createCollection",
-      "description": "New variable collection",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "variable.addMode",
-      "description": "Add a mode (for example Dark) to a collection; every variable copies its first mode's value.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "collection": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "collection"
-        ]
-      }
-    },
-    {
-      "name": "variable.renameMode",
-      "description": "Rename variable mode",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "collection": {
-            "type": "string"
-          },
-          "mode": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "collection",
-          "mode",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "variable.create",
-      "description": "Create a variable (type color, number, string or boolean) in a collection with a value for its first mode.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "collection": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "color",
-              "number",
-              "string",
-              "boolean"
-            ]
-          },
-          "value": {},
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "collection",
-          "name",
-          "type",
-          "value"
-        ]
-      }
-    },
-    {
-      "name": "variable.set",
-      "description": "Set a variable's value in one mode; value may be {alias: variableId}.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "mode": {
-            "type": "string"
-          },
-          "value": {}
-        },
-        "required": [
-          "id",
-          "mode",
-          "value"
-        ]
-      }
-    },
-    {
-      "name": "variable.rename",
-      "description": "Rename variable",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "variable.delete",
-      "description": "Delete a variable; layers bound to it keep their current values.",
+      "name": "variables.destructive",
+      "description": "Figger variables (destructive). Pass command and params; commands: variable.delete (Delete variable). Call help.read for a command's parameters.",
       "scope": "destructive",
       "input": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
+          "command": {
+            "type": "string",
+            "enum": [
+              "variable.delete"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "id"
+          "command"
         ]
       }
     },
     {
-      "name": "node.bindVariable",
-      "description": "Bind a layer property (fill, stroke, w, h, opacity, radius, strokeWidth, fontSize, gap, padding, text, name, visible) to a variable, or unbind with variable null.",
+      "name": "prototype.write",
+      "description": "Figger prototype (write). Pass command and params; commands: proto.set (Set prototype interaction), proto.setStart (Set as prototype start). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
+          "command": {
+            "type": "string",
+            "enum": [
+              "proto.set",
+              "proto.setStart"
+            ],
+            "description": "Which Figger command to run"
           },
-          "prop": {
-            "type": "string"
-          },
-          "variable": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "prop",
-          "variable"
+          "command"
         ]
       }
     },
     {
-      "name": "node.setMode",
-      "description": "Choose which mode of a collection a frame or instance (and everything inside it) uses; mode null inherits.",
+      "name": "pages.write",
+      "description": "Figger pages (write). Pass command and params; commands: page.add (New page), page.open (Go to page), page.rename (Rename page), node.moveToPage (Move to page). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
+          "command": {
+            "type": "string",
+            "enum": [
+              "page.add",
+              "page.open",
+              "page.rename",
+              "node.moveToPage"
+            ],
+            "description": "Which Figger command to run"
           },
-          "collection": {
-            "type": "string"
-          },
-          "mode": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "collection",
-          "mode"
+          "command"
         ]
       }
     },
     {
-      "name": "proto.set",
-      "description": "Set what happens in present mode when a layer is clicked or hovered: navigate to a frame, open an overlay, go back, or open a URL. proto null removes it.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "proto": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "proto"
-        ]
-      }
-    },
-    {
-      "name": "proto.setStart",
-      "description": "Set as prototype start",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "page.add",
-      "description": "New page",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "name": "page.open",
-      "description": "Go to page",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ]
-      }
-    },
-    {
-      "name": "page.rename",
-      "description": "Rename page",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "page.delete",
-      "description": "Delete page",
+      "name": "pages.destructive",
+      "description": "Figger pages (destructive). Pass command and params; commands: page.delete (Delete page). Call help.read for a command's parameters.",
       "scope": "destructive",
       "input": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
+          "command": {
+            "type": "string",
+            "enum": [
+              "page.delete"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "id"
+          "command"
         ]
       }
     },
     {
-      "name": "node.moveToPage",
-      "description": "Move to page",
+      "name": "import.write",
+      "description": "Figger import (write). Pass command and params; commands: import.svg (Import SVG), import.figma (Import Figma JSON). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
+          "command": {
+            "type": "string",
+            "enum": [
+              "import.svg",
+              "import.figma"
+            ],
+            "description": "Which Figger command to run"
           },
-          "page": {
-            "type": "string"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "page"
+          "command"
         ]
       }
     },
     {
-      "name": "layout.setGrids",
-      "description": "Set a frame's layout grids: [{type: columns|rows|grid, count, gutter, margin, size, color}]. Grids show on the canvas only.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
-          },
-          "grids": {
-            "type": "array"
-          }
-        },
-        "required": [
-          "grids"
-        ]
-      }
-    },
-    {
-      "name": "import.svg",
-      "description": "Import SVG markup as a frame of editable layers at (x, y): rectangles and ellipses stay shapes, other elements become vectors, groups become frames.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "svg": {
-            "type": "string"
-          },
-          "x": {
-            "type": "number"
-          },
-          "y": {
-            "type": "number"
-          },
-          "parent": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "svg"
-        ]
-      }
-    },
-    {
-      "name": "import.figma",
-      "description": "Import Figma REST API JSON (a file with ?geometry=paths, or a nodes response) as new pages. Best effort: image fills become grey, instances arrive detached.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "json": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "json"
-        ]
-      }
-    },
-    {
-      "name": "export.code",
-      "description": "Return code for layers (default: selection, else the page): format html (a full HTML page with CSS), react (a JSX component) or css (declarations for the first layer).",
+      "name": "export.read",
+      "description": "Figger export (read). Pass command and params; commands: export.code (Export code), export.avd (Export Android Vector Drawable), export.svg (Export SVG), export.png (Export PNG (2x)), export.jpg (Export JPG (2x)), export.webp (Export WebP (2x)), export.pdf (Export PDF). Call help.read for a command's parameters.",
       "scope": "read",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array"
-          },
-          "format": {
+          "command": {
             "type": "string",
             "enum": [
-              "html",
-              "react",
-              "css"
-            ]
+              "export.code",
+              "export.avd",
+              "export.svg",
+              "export.png",
+              "export.jpg",
+              "export.webp",
+              "export.pdf"
+            ],
+            "description": "Which Figger command to run"
+          },
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
         },
         "required": [
-          "format"
+          "command"
         ]
       }
     },
     {
-      "name": "component.addProp",
-      "description": "Add a property to a main component: type text (drives a text layer), boolean (shows or hides a layer) or swap (chooses the main of a nested instance). target is the layer inside the main.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "text",
-              "boolean",
-              "swap"
-            ]
-          },
-          "target": {
-            "type": "string"
-          },
-          "default": {}
-        },
-        "required": [
-          "id",
-          "name",
-          "type",
-          "target"
-        ]
-      }
-    },
-    {
-      "name": "component.removeProp",
-      "description": "Remove component property",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "instance.setProp",
-      "description": "Set a component property on an instance (text, true/false, or a main component id for swap); value null resets it to the default.",
-      "scope": "write",
-      "input": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "value": {}
-        },
-        "required": [
-          "id",
-          "name",
-          "value"
-        ]
-      }
-    },
-    {
-      "name": "export.avd",
-      "description": "Export the given layers (default: selection, else everything) as an Android Vector Drawable XML string; download saves a file. Text and images are skipped.",
+      "name": "select.read",
+      "description": "Figger select (read). Pass command and params; commands: select.set (Select layers), select.all (Select all), select.none (Select none), select.parent (Select parent), select.children (Select children). Call help.read for a command's parameters.",
       "scope": "read",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array"
+          "command": {
+            "type": "string",
+            "enum": [
+              "select.set",
+              "select.all",
+              "select.none",
+              "select.parent",
+              "select.children"
+            ],
+            "description": "Which Figger command to run"
           },
-          "download": {
-            "type": "boolean"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
           }
-        }
+        },
+        "required": [
+          "command"
+        ]
       }
     },
     {
-      "name": "node.setMinMax",
-      "description": "Set minimum and maximum width and height (null clears one); auto layout and resizing respect them.",
-      "scope": "write",
+      "name": "view.read",
+      "description": "Figger view (read). Pass command and params; commands: view.zoomIn (Zoom in), view.zoomOut (Zoom out), view.zoom100 (Zoom to 100%), view.fit (Zoom to fit), view.fitSelection (Zoom to selection). Call help.read for a command's parameters.",
+      "scope": "read",
       "input": {
         "type": "object",
         "properties": {
-          "ids": {
-            "type": "array",
-            "description": "Node ids; defaults to the current selection"
+          "command": {
+            "type": "string",
+            "enum": [
+              "view.zoomIn",
+              "view.zoomOut",
+              "view.zoom100",
+              "view.fit",
+              "view.fitSelection"
+            ],
+            "description": "Which Figger command to run"
           },
-          "minW": {
-            "type": "number"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "components.read",
+      "description": "Figger components (read). Pass command and params; commands: component.goToMain (Go to main component). Call help.read for a command's parameters.",
+      "scope": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "component.goToMain"
+            ],
+            "description": "Which Figger command to run"
           },
-          "maxW": {
-            "type": "number"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "file.read",
+      "description": "Figger file (read). Pass command and params; commands: doc.get (Get document). Call help.read for a command's parameters.",
+      "scope": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "doc.get"
+            ],
+            "description": "Which Figger command to run"
           },
-          "minH": {
-            "type": "number"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "file.destructive",
+      "description": "Figger file (destructive). Pass command and params; commands: doc.load (Replace document). Call help.read for a command's parameters.",
+      "scope": "destructive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "doc.load"
+            ],
+            "description": "Which Figger command to run"
           },
-          "maxH": {
-            "type": "number"
+          "params": {
+            "type": "object",
+            "description": "The command's own parameters (see help.read)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    {
+      "name": "help.read",
+      "description": "List Figger commands with their parameter schemas and scopes, or describe one command.",
+      "scope": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "A Figger command id; omit to list all"
           }
         }
       }
     }
-  ],
-  "_note": "Document commands only; view, selection and file commands register at run time from the same registry."
+  ]
 }

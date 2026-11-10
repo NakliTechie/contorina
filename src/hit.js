@@ -31,7 +31,7 @@ function hitNode(doc, id, p, parentM, tol, exclude) {
   }
   if (n.locked) return null;
   if (n.type === 'line') return Math.abs(q.y) <= tol + (n.strokeWidth || 0) / 2 && q.x >= -tol && q.x <= n.w + tol ? [id] : null;
-  if (n.type === 'vector' || n.type === 'polygon' || n.type === 'star') {
+  if (n.type === 'vector' || n.type === 'boolean' || n.type === 'polygon' || n.type === 'star') {
     const c = ctx2d();
     if (!c || !inside) return inside && !c ? [id] : null;
     const path = pathOf(n);

@@ -102,7 +102,7 @@ export function toPDF(doc, ids, { images = {} } = {}) {
       if (!c) continue;
       out.push(`/${gs(a * c.a * (p.opacity ?? 1), a)} gs`, `${f(c.r)} ${f(c.g)} ${f(c.b)} rg`, ops, rule);
     }
-    if (n.children && n.children.length) {
+    if (n.children && n.children.length && n.type !== 'boolean') {
       out.push('q');
       if (n.clip !== false) out.push(ops, 'W n');
       for (const c of n.children) draw(c, a, out);

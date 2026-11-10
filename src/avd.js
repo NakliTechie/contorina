@@ -40,7 +40,7 @@ export function toAVD(doc, ids) {
         + (stroke ? ` android:strokeColor="${stroke}" android:strokeWidth="${num(n.strokeWidth * scale)}"${a < 1 ? ` android:strokeAlpha="${num(a)}"` : ''}${n.strokeCap ? ` android:strokeLineCap="${esc(n.strokeCap)}"` : n.type === 'line' ? ' android:strokeLineCap="round"' : ''}` : '')
         + '/>\n';
     }
-    if (n.children && n.children.length) {
+    if (n.children && n.children.length && n.type !== 'boolean') {
       const kids = n.children.map((c) => walk(c, mm, a, pad + '  ')).join('');
       if (kids) out += n.clip !== false ? `${pad}<group android:name="${esc(n.name)}">\n${pad}  <clip-path android:pathData="${esc(d)}"/>\n${kids}${pad}</group>\n` : kids;
     }

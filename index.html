@@ -3609,18 +3609,19 @@ pre.code.small { max-height: 40vh; margin: 0; }
     instance: { fill: null, clip: true },
     vector: { fill: "#D9D9D9", d: "M0 0 L100 0 L100 100 Z", vw: 100, vh: 100, fillRule: "nonzero" },
     polygon: { sides: 3 },
-    star: { points: 5, inner: 0.38 }
+    star: { points: 5, inner: 0.38 },
+    boolean: { op: "union", d: "", vw: 100, vh: 100, fillRule: "evenodd", clip: false }
   };
   var TYPES = Object.keys(TYPE_DEFAULTS);
-  var NAMES = { frame: "Frame", rect: "Rectangle", ellipse: "Ellipse", line: "Line", text: "Text", instance: "Instance", vector: "Vector", polygon: "Polygon", star: "Star" };
+  var NAMES = { boolean: "Boolean", frame: "Frame", rect: "Rectangle", ellipse: "Ellipse", line: "Line", text: "Text", instance: "Instance", vector: "Vector", polygon: "Polygon", star: "Star" };
   function makeNode(type, props = {}) {
     if (!TYPE_DEFAULTS[type]) throw new Error(`Unknown node type "${type}"`);
     const n = { ...BASE, ...TYPE_DEFAULTS[type], ...props, id: props.id || uid(), type };
     delete n.src;
     delete n.root;
-    if (type !== "frame" && type !== "instance") delete n.children;
+    if (type !== "frame" && type !== "instance" && type !== "boolean") delete n.children;
     if (!n.name) n.name = type === "text" ? String(n.text).slice(0, 40) : NAMES[type];
-    if (type === "frame" || type === "instance") n.children = n.children ? n.children.slice() : [];
+    if (type === "frame" || type === "instance" || type === "boolean") n.children = n.children ? n.children.slice() : [];
     return n;
   }
   var isContainer = (n) => !!n && (n.type === "frame" || n.type === "instance");
@@ -5336,6 +5337,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
   }
   function shapeD(n) {
     if (n.type === "polygon") return polygonD(n.sides);
+    if (n.type === "boolean") return n.d || "";
     if (n.type === "star") return starD(n.points, n.inner);
     return n.d || "";
   }
@@ -5351,6 +5353,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       case "line":
         return `M0 0 L${w} 0`;
       case "vector":
+      case "boolean":
         return scaleD(n.d || "", w / (n.vw || w || 1), h2 / (n.vh || h2 || 1));
       case "polygon":
       case "star":
@@ -5920,13 +5923,14 @@ pre.code.small { max-height: 40vh; margin: 0; }
       doc(tx, p, env2) {
         const ids = topmost(tx.doc, sel2(tx, p, env2)).filter((id) => {
           const n = tx.get(id);
-          return !n.src && !n.children && n.type !== "text" && n.type !== "line";
+          return !n.src && (!n.children || n.type === "boolean") && n.type !== "text" && n.type !== "line";
         });
         if (!ids.length) return false;
         const out = [];
         for (const id of ids) {
           const n = tx.get(id);
           const f2 = fitVector(outlineInParent(n));
+          if (n.type === "boolean") for (const c of n.children.slice()) tx.remove(c);
           out.push(replaceWith(tx, id, makeNode("vector", { ...keep(n), ...f2, fillRule: "evenodd" })));
         }
         return { select: out };
@@ -5966,16 +5970,82 @@ pre.code.small { max-height: 40vh; margin: 0; }
         return { select: [node2.id], value: node2.id };
       }
     },
+    {
+      id: "boolean.group",
+      label: "Boolean group (live)",
+      group: "Arrange",
+      hidden: true,
+      description: "Combine shapes into a live boolean group (union, subtract, intersect, exclude); the shapes stay editable inside it. Flatten bakes it into one path.",
+      params: { ids: ids$2, op: { type: "string", required: true, enum: ["union", "subtract", "intersect", "exclude"] } },
+      doc(tx, p, env2) {
+        const ids = topmost(tx.doc, sel2(tx, p, env2)).filter((id) => {
+          const n = tx.get(id);
+          return !n.src && n.type !== "text";
+        });
+        if (ids.length < 2) throw new Error("Select two or more shapes");
+        const parent = tx.get(ids[0]).parent;
+        const order = tx.childIds(parent);
+        ids.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        const base = tx.get(ids[0]);
+        const index2 = order.indexOf(ids[ids.length - 1]) - ids.length + 1;
+        const g = makeNode("boolean", { ...keep(base), name: { union: "Union", subtract: "Subtract", intersect: "Intersect", exclude: "Exclude" }[p.op], op: p.op, x: 0, y: 0, w: 1, h: 1 });
+        if (!g.fill && !g.stroke) g.fill = "#D9D9D9";
+        for (const id of ids) tx.detach(id);
+        tx.add(g, parent, Math.max(0, index2));
+        for (const id of ids) {
+          tx.add(tx.mut(id), g.id);
+        }
+        return { select: [g.id], value: g.id };
+      }
+    },
+    {
+      id: "boolean.setOp",
+      label: "Change boolean operation",
+      group: "Arrange",
+      hidden: true,
+      params: { ids: ids$2, op: { type: "string", required: true, enum: ["union", "subtract", "intersect", "exclude"] } },
+      doc(tx, p, env2) {
+        const ids = sel2(tx, p, env2).filter((id) => tx.get(id).type === "boolean" && !tx.get(id).src);
+        if (!ids.length) return false;
+        for (const id of ids) tx.set(id, { op: p.op });
+      }
+    },
     ...["union", "subtract", "intersect", "exclude"].map((op) => ({
       id: "boolean." + op,
       label: `Boolean: ${op[0].toUpperCase() + op.slice(1)}`,
       group: "Arrange",
       keys: { union: ["Alt+Shift+U"], subtract: ["Alt+Shift+S"], intersect: ["Alt+Shift+I"], exclude: ["Alt+Shift+X"] }[op],
       doc(tx, p, env2) {
-        return get("boolean.apply").doc(tx, { ids: p.ids, op }, env2);
+        return get("boolean.group").doc(tx, { ids: p.ids, op }, env2);
       }
     }))
   );
+  function syncBooleans(tx) {
+    for (const id of Object.keys(tx.doc.nodes)) {
+      const n = tx.get(id);
+      if (!n || n.type !== "boolean" || !n.children || !n.children.length) continue;
+      const kids = n.children.filter((c) => tx.get(c) && tx.get(c).visible !== false);
+      const gs = kids.map((c) => {
+        const rs = flatten(parsePath(outlineInParent(tx.get(c))), 0.2).filter((r) => r.pts.length > 2).map((r) => [...r.pts.map(([x, y]) => [x, y]), r.pts[0]]);
+        return rs.length ? rs.slice(1).reduce((acc, r) => import_polygon_clipping.default.xor(acc, [[r]]), [[rs[0]]]) : [];
+      });
+      const fn = { union: import_polygon_clipping.default.union, subtract: import_polygon_clipping.default.difference, intersect: import_polygon_clipping.default.intersection, exclude: import_polygon_clipping.default.xor }[n.op] || import_polygon_clipping.default.union;
+      const res = gs.length ? fn(gs[0], ...gs.slice(1)) : [];
+      const d = serialize(res.flatMap((poly) => poly.map((ring) => ({ closed: true, segs: ring.slice(0, -1).map((pt, i) => ({ c: i ? "L" : "M", pts: [pt] })) }))));
+      if (!d) {
+        if (n.d) tx.set(id, { d: "" });
+        continue;
+      }
+      const f2 = fitVector(d);
+      if (Math.abs(f2.x) > 1e-6 || Math.abs(f2.y) > 1e-6) {
+        for (const c of n.children) {
+          const k = tx.get(c);
+          if (k) tx.set(c, { x: round2(k.x - f2.x), y: round2(k.y - f2.y) });
+        }
+        tx.set(id, { x: round2(n.x + f2.x), y: round2(n.y + f2.y), w: f2.w, h: f2.h, vw: f2.vw, vh: f2.vh, d: f2.d });
+      } else if (n.d !== f2.d || n.w !== f2.w || n.h !== f2.h) tx.set(id, { w: f2.w, h: f2.h, vw: f2.vw, vh: f2.vh, d: f2.d });
+    }
+  }
 
   // src/variables.js
   var BINDABLE = {
@@ -6832,11 +6902,13 @@ pre.code.small { max-height: 40vh; margin: 0; }
         p.lineTo(n.w, 0);
         return p;
       case "vector":
+      case "boolean":
       case "polygon":
       case "star": {
         const d = shapeD(n);
-        const vw = n.type === "vector" ? n.vw || n.w || 1 : 1, vh = n.type === "vector" ? n.vh || n.h || 1 : 1;
-        const sx = n.type === "vector" ? n.w / vw : n.w, sy = n.type === "vector" ? n.h / vh : n.h;
+        if (!d) return p;
+        const vw = n.type === "vector" || n.type === "boolean" ? n.vw || n.w || 1 : 1, vh = n.type === "vector" || n.type === "boolean" ? n.vh || n.h || 1 : 1;
+        const sx = n.type === "vector" || n.type === "boolean" ? n.w / vw : n.w, sy = n.type === "vector" || n.type === "boolean" ? n.h / vh : n.h;
         p.addPath(cachedPath(d), new DOMMatrix([sx || 1e-6, 0, 0, sy || 1e-6, 0, 0]));
         return p;
       }
@@ -6951,7 +7023,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ctx2.fill(ring, "evenodd");
       ctx2.restore();
     }
-    if (n.children && n.children.length) {
+    if (n.children && n.children.length && n.type !== "boolean") {
       ctx2.save();
       if (n.clip !== false) ctx2.clip(path, rule);
       ctx2.filter = "none";
@@ -7226,7 +7298,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       }
       const fillSvg = n.type === "line" ? "" : fills(n, fill);
       const strokeSvg = strokeAttrs(n, stroke) ? shape(n, ' fill="none"' + strokeAttrs(n, stroke)) : "";
-      if (!n.children || !n.children.length) return `<g ${head}>${fillSvg}${strokeSvg}</g>`;
+      if (!n.children || !n.children.length || n.type === "boolean") return `<g ${head}>${fillSvg}${strokeSvg}</g>`;
       let kids = n.children.map((c) => node2(c, localMatrix(doc.nodes[c] || { x: 0, y: 0, w: 0, h: 0 }))).join("");
       if (n.clip !== false) {
         const cid = uid2();
@@ -7352,7 +7424,7 @@ ${defs.length ? `<defs>${defs.join("")}</defs>
       if (t.textCase === "upper") css["text-transform"] = "uppercase";
       if (t.textCase === "lower") css["text-transform"] = "lowercase";
       css["white-space"] = n.autoSize === "width" ? "pre" : "pre-wrap";
-    } else if (n.type !== "vector" && n.type !== "polygon" && n.type !== "star" && n.type !== "line") {
+    } else if (n.type !== "vector" && n.type !== "boolean" && n.type !== "polygon" && n.type !== "star" && n.type !== "line") {
       Object.assign(css, paintCSS(fill, doc));
       const r = radii(n);
       if (n.type === "ellipse") css["border-radius"] = "50%";
@@ -7397,7 +7469,7 @@ ${defs.length ? `<defs>${defs.join("")}</defs>
       if (!n || n.visible === false) return "";
       const c = cls(n, used);
       const pad = "  ".repeat(depth);
-      if (n.type === "vector" || n.type === "polygon" || n.type === "star" || n.type === "line") {
+      if (n.type === "vector" || n.type === "boolean" || n.type === "polygon" || n.type === "star" || n.type === "line") {
         rules.push(`.${c} {
 ${cssText(cssFor(doc, id, { root }), "  ")}
 }`);
@@ -7440,7 +7512,7 @@ ${body}
       if (!n || n.visible === false) return "";
       const pad = "  ".repeat(depth);
       const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(cssSafe(v))}`).join(", ");
-      if (n.type === "vector" || n.type === "polygon" || n.type === "star" || n.type === "line") {
+      if (n.type === "vector" || n.type === "boolean" || n.type === "polygon" || n.type === "star" || n.type === "line") {
         const svg = toSVG({ ...doc, children: [id] }, [id]).trim().replace(/\n/g, "");
         return `${pad}<div style={{ ${style} }} dangerouslySetInnerHTML={{ __html: ${JSON.stringify(svg)} }} />`;
       }
@@ -7603,7 +7675,7 @@ ${inner}
         const scale = Math.sqrt(Math.abs(mm[0] * mm[3] - mm[1] * mm[2])) || 1;
         out += `${pad}<path android:name="${esc3(n.name)}" android:pathData="${esc3(d)}"` + (fill ? ` android:fillColor="${fill}"${a < 1 ? ` android:fillAlpha="${num2(a)}"` : ""}${n.fillRule === "evenodd" ? ' android:fillType="evenOdd"' : ""}` : "") + (stroke ? ` android:strokeColor="${stroke}" android:strokeWidth="${num2(n.strokeWidth * scale)}"${a < 1 ? ` android:strokeAlpha="${num2(a)}"` : ""}${n.strokeCap ? ` android:strokeLineCap="${esc3(n.strokeCap)}"` : n.type === "line" ? ' android:strokeLineCap="round"' : ""}` : "") + "/>\n";
       }
-      if (n.children && n.children.length) {
+      if (n.children && n.children.length && n.type !== "boolean") {
         const kids = n.children.map((c) => walk2(c, mm, a, pad + "  ")).join("");
         if (kids) out += n.clip !== false ? `${pad}<group android:name="${esc3(n.name)}">
 ${pad}  <clip-path android:pathData="${esc3(d)}"/>
@@ -7866,7 +7938,7 @@ ${body}</vector>
     }
     if (n.locked) return null;
     if (n.type === "line") return Math.abs(q.y) <= tol + (n.strokeWidth || 0) / 2 && q.x >= -tol && q.x <= n.w + tol ? [id] : null;
-    if (n.type === "vector" || n.type === "polygon" || n.type === "star") {
+    if (n.type === "vector" || n.type === "boolean" || n.type === "polygon" || n.type === "star") {
       const c = ctx2d();
       if (!c || !inside) return inside && !c ? [id] : null;
       const path = pathOf(n);
@@ -8227,7 +8299,7 @@ ${body}</vector>
         if (!c) continue;
         out.push(`/${gs(a * c.a * (p2.opacity ?? 1), a)} gs`, `${f(c.r)} ${f(c.g)} ${f(c.b)} rg`, ops, rule);
       }
-      if (n.children && n.children.length) {
+      if (n.children && n.children.length && n.type !== "boolean") {
         out.push("q");
         if (n.clip !== false) out.push(ops, "W n");
         for (const c of n.children) draw(c, a, out);
@@ -8754,6 +8826,7 @@ ${xo}
     layoutAll(tx);
     measureTexts(tx);
     layoutAll(tx);
+    syncBooleans(tx);
   }
 
   // src/snap.js
@@ -9690,7 +9763,7 @@ ${xo}
     return api;
   }
   var sweep = null;
-  window.addEventListener("pointerup", () => {
+  if (typeof window !== "undefined") window.addEventListener("pointerup", () => {
     sweep = null;
   });
   function sweepToggle(el, get2, set) {
@@ -10299,7 +10372,7 @@ ${xo}
       if (!ns.length) return extra + "doc:" + Object.keys(state.doc.styles).length + ":" + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
       return ns.map((n) => {
         const p = n.parent && state.doc.nodes[n.parent];
-        return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id].join("|");
+        return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id, n.op].join("|");
       }).join(";") + Object.keys(state.doc.styles).join() + extra;
     }
     function build() {
@@ -10485,6 +10558,7 @@ ${xo}
         radiusUI,
         clipRow
       ));
+      if (one && one.type === "boolean" && !one.src) body.append(section2("Boolean", h("div.ps-row", ...["union", "subtract", "intersect", "exclude"].map((op) => h("button.ps-btn" + (one.op === op ? ".primary" : ""), { type: "button", on: { click: () => app2.run("boolean.setOp", { op }) } }, op[0].toUpperCase() + op.slice(1)))), h("div.ps-row", button("Flatten", () => app2.run("node.flatten"), { title: "Mod+E" }))));
       if (allType("polygon")) body.append(section2("Polygon", grid(num3("Sides", "sides", { min: 3, max: 60, def: 3, decimals: 0, title: "Number of sides" }))));
       if (allType("star")) body.append(section2("Star", grid(num3("Pts", "points", { min: 3, max: 60, def: 5, decimals: 0, title: "Number of points" }), num3("In", "inner", { scale: 100, min: 1, max: 100, def: 38, unit: "%", decimals: 0, title: "Inner radius ratio" }))));
       if (one && ["vector", "polygon", "star"].includes(one.type) && !one.src) {
@@ -10496,7 +10570,7 @@ ${xo}
       }
       const shapes = ns.filter((n) => !n.src && n.type !== "text" && !n.children);
       if (ns.length >= 2 && !ns.some((n) => n.src)) {
-        body.append(section2("Boolean", h("div.ps-row", ...["union", "subtract", "intersect", "exclude"].map((op) => button(op[0].toUpperCase() + op.slice(1), () => app2.run("boolean.apply", { op }), { title: `Boolean ${op}` })))));
+        body.append(section2("Boolean", h("div.ps-row", ...["union", "subtract", "intersect", "exclude"].map((op) => button(op[0].toUpperCase() + op.slice(1), () => app2.run("boolean.group", { op }), { title: `Live boolean ${op}; Flatten bakes it` })))));
       }
       if (shapes.length && shapes.length === ns.length && !ns.every((n) => n.type === "vector" || n.type === "line")) {
         body.append(h("div.ps-row.pad", button("Flatten to vector", () => app2.run("node.flatten"), { title: "Mod+E" })));
@@ -10851,14 +10925,47 @@ ${xo}
 
   // src/host.js
   var nak2 = () => globalThis.naklios;
+  var slug = (g) => String(g).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "misc";
+  function railEntries() {
+    const groups = /* @__PURE__ */ new Map();
+    for (const c of all()) {
+      if (c.personOnly || c.noRail) continue;
+      const scope = c.scope || (c.doc ? "write" : "read");
+      const name = `${slug(c.group)}.${scope}`;
+      if (!groups.has(name)) groups.set(name, { name, group: c.group, scope, list: [] });
+      groups.get(name).list.push(c);
+    }
+    const entries = [...groups.values()].map((g) => ({
+      name: g.name,
+      scope: g.scope,
+      description: `Figger ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(", ")}. Call help.read for a command's parameters.`,
+      input: {
+        type: "object",
+        properties: {
+          command: { type: "string", enum: g.list.map((c) => c.id), description: "Which Figger command to run" },
+          params: { type: "object", description: "The command's own parameters (see help.read)" }
+        },
+        required: ["command"]
+      },
+      commands: g.list.map((c) => c.id)
+    }));
+    if (!groups.has("help.read")) entries.push({ name: "help.read", scope: "read", description: "List Figger commands with their parameter schemas and scopes, or describe one command.", input: { type: "object", properties: { command: { type: "string", description: "A Figger command id; omit to list all" } } }, commands: [] });
+    return entries;
+  }
   function railCommands(run2) {
-    return all().filter((c) => !c.personOnly && !c.noRail).map((c) => ({
-      name: c.id,
-      description: c.description || c.label,
-      input: inputSchema(c),
-      scope: c.scope || (c.doc ? "write" : "read"),
+    return railEntries().map((e) => ({
+      name: e.name,
+      description: e.description,
+      input: e.input,
+      scope: e.scope,
       handler: async (args) => {
-        const v = await run2(c.id, args || {}, { source: "agent" });
+        args = args || {};
+        if (e.name === "help.read" && !e.commands.length) {
+          const m = all().filter((c) => !c.personOnly && !c.noRail).map((c) => ({ id: c.id, label: c.label, description: c.description || c.label, scope: c.scope, params: inputSchema(c) }));
+          return args.command ? m.find((c) => c.id === args.command) || { error: `No command ${args.command}` } : m;
+        }
+        if (!e.commands.includes(args.command)) throw new Error(`${args.command} is not a ${e.name} command`);
+        const v = await run2(args.command, args.params || {}, { source: "agent" });
         return v === void 0 ? { ok: true } : v;
       }
     }));
@@ -11499,7 +11606,8 @@ ${xo}
     document.body.appendChild(d);
     d.showModal();
   }
-  window.addEventListener("keydown", (e) => {
+  var hasDOM = typeof window !== "undefined" && typeof document !== "undefined";
+  if (hasDOM) window.addEventListener("keydown", (e) => {
     if (document.querySelector("dialog[open], .palette, .present")) return;
     if (isTyping(e.target)) return;
     if (fieldKey(e)) return;
@@ -11541,13 +11649,13 @@ ${xo}
     e.preventDefault();
     run(c.id);
   });
-  window.addEventListener("keyup", (e) => {
+  if (hasDOM) window.addEventListener("keyup", (e) => {
     if (e.code === "Space") {
       state.space = false;
       app.canvas.el.style.cursor = "default";
     }
   });
-  window.addEventListener("blur", () => {
+  if (hasDOM) window.addEventListener("blur", () => {
     state.space = false;
   });
   function buildToolbar(bar) {
@@ -11749,7 +11857,7 @@ ${xo}
     state: () => structuredClone({ doc: state.doc, selection: state.selection, view: state.view }),
     help: () => "figger.commands() lists every command with its params and scope; figger.run(id, params) runs one. Person-only commands (file pickers) are refused; use doc.get and doc.load."
   });
-  boot().catch((e) => {
+  if (hasDOM) boot().catch((e) => {
     console.error(e);
     toast(`Figger failed to start: ${e.message}`, "error");
   });

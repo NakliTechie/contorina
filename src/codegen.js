@@ -77,7 +77,7 @@ export function cssFor(doc, id, { root = false } = {}) {
     if (t.textCase === 'upper') css['text-transform'] = 'uppercase';
     if (t.textCase === 'lower') css['text-transform'] = 'lowercase';
     css['white-space'] = n.autoSize === 'width' ? 'pre' : 'pre-wrap';
-  } else if (n.type !== 'vector' && n.type !== 'polygon' && n.type !== 'star' && n.type !== 'line') {
+  } else if (n.type !== 'vector' && n.type !== 'boolean' && n.type !== 'polygon' && n.type !== 'star' && n.type !== 'line') {
     Object.assign(css, paintCSS(fill, doc));
     const r = radii(n);
     if (n.type === 'ellipse') css['border-radius'] = '50%';
@@ -125,7 +125,7 @@ export function toHTML(doc, ids) {
     if (!n || n.visible === false) return '';
     const c = cls(n, used);
     const pad = '  '.repeat(depth);
-    if (n.type === 'vector' || n.type === 'polygon' || n.type === 'star' || n.type === 'line') {
+    if (n.type === 'vector' || n.type === 'boolean' || n.type === 'polygon' || n.type === 'star' || n.type === 'line') {
       rules.push(`.${c} {\n${cssText(cssFor(doc, id, { root }), '  ')}\n}`);
       const svg = toSVG({ ...doc, children: [id] }, [id]).trim().replace(/\n/g, '');
       return `${pad}<div class="${c}">${svg}</div>`;
@@ -149,7 +149,7 @@ export function toReact(doc, ids) {
     if (!n || n.visible === false) return '';
     const pad = '  '.repeat(depth);
     const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(cssSafe(v))}`).join(', ');
-    if (n.type === 'vector' || n.type === 'polygon' || n.type === 'star' || n.type === 'line') {
+    if (n.type === 'vector' || n.type === 'boolean' || n.type === 'polygon' || n.type === 'star' || n.type === 'line') {
       const svg = toSVG({ ...doc, children: [id] }, [id]).trim().replace(/\n/g, '');
       return `${pad}<div style={{ ${style} }} dangerouslySetInnerHTML={{ __html: ${JSON.stringify(svg)} }} />`;
     }

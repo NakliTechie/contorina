@@ -27,17 +27,18 @@ const TYPE_DEFAULTS = {
   vector: { fill: '#D9D9D9', d: 'M0 0 L100 0 L100 100 Z', vw: 100, vh: 100, fillRule: 'nonzero' },
   polygon: { sides: 3 },
   star: { points: 5, inner: 0.38 },
+  boolean: { op: 'union', d: '', vw: 100, vh: 100, fillRule: 'evenodd', clip: false },
 };
 export const TYPES = Object.keys(TYPE_DEFAULTS);
-const NAMES = { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', text: 'Text', instance: 'Instance', vector: 'Vector', polygon: 'Polygon', star: 'Star' };
+const NAMES = { boolean: 'Boolean', frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', text: 'Text', instance: 'Instance', vector: 'Vector', polygon: 'Polygon', star: 'Star' };
 
 export function makeNode(type, props = {}) {
   if (!TYPE_DEFAULTS[type]) throw new Error(`Unknown node type "${type}"`);
   const n = { ...BASE, ...TYPE_DEFAULTS[type], ...props, id: props.id || uid(), type };
   delete n.src; delete n.root;
-  if (type !== 'frame' && type !== 'instance') delete n.children;
+  if (type !== 'frame' && type !== 'instance' && type !== 'boolean') delete n.children;
   if (!n.name) n.name = type === 'text' ? String(n.text).slice(0, 40) : NAMES[type];
-  if (type === 'frame' || type === 'instance') n.children = n.children ? n.children.slice() : [];
+  if (type === 'frame' || type === 'instance' || type === 'boolean') n.children = n.children ? n.children.slice() : [];
   return n;
 }
 

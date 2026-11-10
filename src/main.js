@@ -397,7 +397,9 @@ function showShortcuts() {
 }
 
 // ---- keys -----------------------------------------------------------------------------------------
-window.addEventListener('keydown', (e) => {
+// The build imports this module in Node to list every command (commands.json); there is no window then.
+const hasDOM = typeof window !== 'undefined' && typeof document !== 'undefined';
+if (hasDOM) window.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open], .palette, .present')) return;
   if (isTyping(e.target)) return;
   if (fieldKey(e)) return;
@@ -419,8 +421,8 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
   run(c.id);
 });
-window.addEventListener('keyup', (e) => { if (e.code === 'Space') { state.space = false; app.canvas.el.style.cursor = 'default'; } });
-window.addEventListener('blur', () => { state.space = false; });
+if (hasDOM) window.addEventListener('keyup', (e) => { if (e.code === 'Space') { state.space = false; app.canvas.el.style.cursor = 'default'; } });
+if (hasDOM) window.addEventListener('blur', () => { state.space = false; });
 
 // ---- shell ----------------------------------------------------------------------------------------
 function buildToolbar(bar) {
@@ -573,4 +575,4 @@ globalThis.figger = Object.freeze({
   help: () => 'figger.commands() lists every command with its params and scope; figger.run(id, params) runs one. Person-only commands (file pickers) are refused; use doc.get and doc.load.',
 });
 
-boot().catch((e) => { console.error(e); toast(`Figger failed to start: ${e.message}`, 'error'); });
+if (hasDOM) boot().catch((e) => { console.error(e); toast(`Figger failed to start: ${e.message}`, 'error'); });

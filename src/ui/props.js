@@ -77,7 +77,7 @@ export function createProps(root, app) {
     if (!ns.length) return extra + 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
     return ns.map((n) => {
       const p = n.parent && state.doc.nodes[n.parent];
-      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id].join('|');
+      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id, n.op].join('|');
     }).join(';') + Object.keys(state.doc.styles).join() + extra;
   }
 
@@ -220,6 +220,7 @@ export function createProps(root, app) {
       radiusUI, clipRow));
 
     // Shape settings for polygons, stars and vectors.
+    if (one && one.type === 'boolean' && !one.src) body.append(section('Boolean', h('div.ps-row', ...['union', 'subtract', 'intersect', 'exclude'].map((op) => h('button.ps-btn' + (one.op === op ? '.primary' : ''), { type: 'button', on: { click: () => app.run('boolean.setOp', { op }) } }, op[0].toUpperCase() + op.slice(1)))), h('div.ps-row', button('Flatten', () => app.run('node.flatten'), { title: 'Mod+E' }))));
     if (allType('polygon')) body.append(section('Polygon', grid(num('Sides', 'sides', { min: 3, max: 60, def: 3, decimals: 0, title: 'Number of sides' }))));
     if (allType('star')) body.append(section('Star', grid(num('Pts', 'points', { min: 3, max: 60, def: 5, decimals: 0, title: 'Number of points' }), num('In', 'inner', { scale: 100, min: 1, max: 100, def: 38, unit: '%', decimals: 0, title: 'Inner radius ratio' }))));
     if (one && ['vector', 'polygon', 'star'].includes(one.type) && !one.src) {
@@ -228,7 +229,7 @@ export function createProps(root, app) {
     }
     const shapes = ns.filter((n) => !n.src && n.type !== 'text' && !n.children);
     if (ns.length >= 2 && !ns.some((n) => n.src)) {
-      body.append(section('Boolean', h('div.ps-row', ...['union', 'subtract', 'intersect', 'exclude'].map((op) => button(op[0].toUpperCase() + op.slice(1), () => app.run('boolean.apply', { op }), { title: `Boolean ${op}` })))));
+      body.append(section('Boolean', h('div.ps-row', ...['union', 'subtract', 'intersect', 'exclude'].map((op) => button(op[0].toUpperCase() + op.slice(1), () => app.run('boolean.group', { op }), { title: `Live boolean ${op}; Flatten bakes it` })))));
     }
     if (shapes.length && shapes.length === ns.length && !ns.every((n) => n.type === 'vector' || n.type === 'line')) {
       body.append(h('div.ps-row.pad', button('Flatten to vector', () => app.run('node.flatten'), { title: 'Mod+E' })));

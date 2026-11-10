@@ -6,21 +6,59 @@ import { all, inputSchema } from './registry.js';
 const nak = () => globalThis.naklios;
 export const hosted = () => !!(nak() && nak().capabilities.hosted);
 
-// Commands an agent can run through the rail. Person-only acts (file pickers) and pure view commands
-// that only make sense with a person watching are left out by name, not by omission.
-export function railCommands(run) {
-  return all()
-    .filter((c) => !c.personOnly && !c.noRail)
-    .map((c) => ({
-      name: c.id,
-      description: c.description || c.label,
-      input: inputSchema(c),
-      scope: c.scope || (c.doc ? 'write' : 'read'),
-      handler: async (args) => {
-        const v = await run(c.id, args || {}, { source: 'agent' });
-        return v === undefined ? { ok: true } : v;
+// The NakliOS host accepts at most 64 commands per app (sys/host/catalog.mjs MAX_COMMANDS), with names
+// matching /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*){0,3}$/. Figger's registry has about 100, so the rail
+// carries one entry per area and scope: "<area>.<scope>" with input { command, params }. Grouping by
+// scope keeps the host's grant checks exact (write asks once, destructive goes to review). Person-only
+// acts (file pickers) and view-only tools stay off the rail by name. "help.read" returns each command's
+// own parameter schema, so an agent can look one up before calling it.
+export const RAIL_LIMIT = 64;
+const slug = (g) => String(g).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'misc';
+
+export function railEntries() {
+  const groups = new Map();
+  for (const c of all()) {
+    if (c.personOnly || c.noRail) continue;
+    const scope = c.scope || (c.doc ? 'write' : 'read');
+    const name = `${slug(c.group)}.${scope}`;
+    if (!groups.has(name)) groups.set(name, { name, group: c.group, scope, list: [] });
+    groups.get(name).list.push(c);
+  }
+  const entries = [...groups.values()].map((g) => ({
+    name: g.name,
+    scope: g.scope,
+    description: `Figger ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(', ')}. Call help.read for a command's parameters.`,
+    input: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', enum: g.list.map((c) => c.id), description: 'Which Figger command to run' },
+        params: { type: 'object', description: 'The command\'s own parameters (see help.read)' },
       },
-    }));
+      required: ['command'],
+    },
+    commands: g.list.map((c) => c.id),
+  }));
+  if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List Figger commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'A Figger command id; omit to list all' } } }, commands: [] });
+  return entries;
+}
+
+export function railCommands(run) {
+  return railEntries().map((e) => ({
+    name: e.name,
+    description: e.description,
+    input: e.input,
+    scope: e.scope,
+    handler: async (args) => {
+      args = args || {};
+      if (e.name === 'help.read' && !e.commands.length) {
+        const m = all().filter((c) => !c.personOnly && !c.noRail).map((c) => ({ id: c.id, label: c.label, description: c.description || c.label, scope: c.scope, params: inputSchema(c) }));
+        return args.command ? m.find((c) => c.id === args.command) || { error: `No command ${args.command}` } : m;
+      }
+      if (!e.commands.includes(args.command)) throw new Error(`${args.command} is not a ${e.name} command`);
+      const v = await run(args.command, args.params || {}, { source: 'agent' });
+      return v === undefined ? { ok: true } : v;
+    },
+  }));
 }
 
 export function connectHost({ run, onTheme, onCapabilities, title }) {

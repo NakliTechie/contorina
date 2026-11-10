@@ -101,12 +101,13 @@ register(
     description: 'Turn shapes into editable vector paths (rotation is baked into the path).',
     params: { ids: ids$ },
     doc(tx, p, env) {
-      const ids = topmost(tx.doc, sel(tx, p, env)).filter((id) => { const n = tx.get(id); return !n.src && !n.children && n.type !== 'text' && n.type !== 'line'; });
+      const ids = topmost(tx.doc, sel(tx, p, env)).filter((id) => { const n = tx.get(id); return !n.src && (!n.children || n.type === 'boolean') && n.type !== 'text' && n.type !== 'line'; });
       if (!ids.length) return false;
       const out = [];
       for (const id of ids) {
         const n = tx.get(id);
         const f = fitVector(outlineInParent(n));
+        if (n.type === 'boolean') for (const c of n.children.slice()) tx.remove(c);
         out.push(replaceWith(tx, id, makeNode('vector', { ...keep(n), ...f, fillRule: 'evenodd' })));
       }
       return { select: out };
@@ -140,10 +141,63 @@ register(
       return { select: [node.id], value: node.id };
     },
   },
+  {
+    id: 'boolean.group', label: 'Boolean group (live)', group: 'Arrange', hidden: true,
+    description: 'Combine shapes into a live boolean group (union, subtract, intersect, exclude); the shapes stay editable inside it. Flatten bakes it into one path.',
+    params: { ids: ids$, op: { type: 'string', required: true, enum: ['union', 'subtract', 'intersect', 'exclude'] } },
+    doc(tx, p, env) {
+      const ids = topmost(tx.doc, sel(tx, p, env)).filter((id) => { const n = tx.get(id); return !n.src && n.type !== 'text'; });
+      if (ids.length < 2) throw new Error('Select two or more shapes');
+      const parent = tx.get(ids[0]).parent;
+      const order = tx.childIds(parent);
+      ids.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      const base = tx.get(ids[0]);
+      const index = order.indexOf(ids[ids.length - 1]) - ids.length + 1;
+      const g = makeNode('boolean', { ...keep(base), name: { union: 'Union', subtract: 'Subtract', intersect: 'Intersect', exclude: 'Exclude' }[p.op], op: p.op, x: 0, y: 0, w: 1, h: 1 });
+      if (!g.fill && !g.stroke) g.fill = '#D9D9D9';
+      for (const id of ids) tx.detach(id);
+      tx.add(g, parent, Math.max(0, index));
+      // Children keep their parent coordinates; syncBooleans then moves the box onto the result.
+      for (const id of ids) { tx.add(tx.mut(id), g.id); }
+      return { select: [g.id], value: g.id };
+    },
+  },
+  {
+    id: 'boolean.setOp', label: 'Change boolean operation', group: 'Arrange', hidden: true,
+    params: { ids: ids$, op: { type: 'string', required: true, enum: ['union', 'subtract', 'intersect', 'exclude'] } },
+    doc(tx, p, env) {
+      const ids = sel(tx, p, env).filter((id) => tx.get(id).type === 'boolean' && !tx.get(id).src);
+      if (!ids.length) return false;
+      for (const id of ids) tx.set(id, { op: p.op });
+    },
+  },
   ...['union', 'subtract', 'intersect', 'exclude'].map((op) => ({
     id: 'boolean.' + op, label: `Boolean: ${op[0].toUpperCase() + op.slice(1)}`, group: 'Arrange',
     keys: { union: ['Alt+Shift+U'], subtract: ['Alt+Shift+S'], intersect: ['Alt+Shift+I'], exclude: ['Alt+Shift+X'] }[op],
-    doc(tx, p, env) { return get('boolean.apply').doc(tx, { ids: p.ids, op }, env); },
+    doc(tx, p, env) { return get('boolean.group').doc(tx, { ids: p.ids, op }, env); },
   })),
 );
+// Live booleans: the layer's outline is the operation applied to its children, recomputed on every
+// edit; children stay editable, and the box follows the result (children shift to stay in place).
+export function syncBooleans(tx) {
+  for (const id of Object.keys(tx.doc.nodes)) {
+    const n = tx.get(id);
+    if (!n || n.type !== 'boolean' || !n.children || !n.children.length) continue;
+    const kids = n.children.filter((c) => tx.get(c) && tx.get(c).visible !== false);
+    const gs = kids.map((c) => {
+      const rs = flatten(parsePath(outlineInParent(tx.get(c))), 0.2).filter((r) => r.pts.length > 2).map((r) => [...r.pts.map(([x, y]) => [x, y]), r.pts[0]]);
+      return rs.length ? rs.slice(1).reduce((acc, r) => polygonClipping.xor(acc, [[r]]), [[rs[0]]]) : [];
+    });
+    const fn = { union: polygonClipping.union, subtract: polygonClipping.difference, intersect: polygonClipping.intersection, exclude: polygonClipping.xor }[n.op] || polygonClipping.union;
+    const res = gs.length ? fn(gs[0], ...gs.slice(1)) : [];
+    const d = serialize(res.flatMap((poly) => poly.map((ring) => ({ closed: true, segs: ring.slice(0, -1).map((pt, i) => ({ c: i ? 'L' : 'M', pts: [pt] })) }))));
+    if (!d) { if (n.d) tx.set(id, { d: '' }); continue; }
+    const f = fitVector(d);
+    if (Math.abs(f.x) > 1e-6 || Math.abs(f.y) > 1e-6) {
+      for (const c of n.children) { const k = tx.get(c); if (k) tx.set(c, { x: round2(k.x - f.x), y: round2(k.y - f.y) }); }
+      tx.set(id, { x: round2(n.x + f.x), y: round2(n.y + f.y), w: f.w, h: f.h, vw: f.vw, vh: f.vh, d: f.d });
+    } else if (n.d !== f.d || n.w !== f.w || n.h !== f.h) tx.set(id, { w: f.w, h: f.h, vw: f.vw, vh: f.vh, d: f.d });
+  }
+}
+
 export { polygonD };
