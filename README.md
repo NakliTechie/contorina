@@ -1,6 +1,6 @@
 <h1 align="center">Figger</h1>
 
-<p align="center"><b>A design tool in one HTML file: frames, auto layout, components, variants and styles, saved as plain JSON on your own disk.</b></p>
+<p align="center"><b>A design tool in one HTML file: frames, auto layout, components, vectors, variables and prototypes, saved as plain JSON on your own disk.</b></p>
 
 <p align="center">One HTML file runs in any modern browser and inside NakliOS. It has no account, no server and no telemetry.</p>
 
@@ -31,7 +31,7 @@ figger.run('export.svg', {})            // returns the SVG as a string
 
 ## Why
 
-You want to sketch a screen, keep a small component library and hand someone an SVG, and you do not want an account, a subscription or a file that only opens in someone else's cloud. Figger keeps the document as readable JSON on your disk and runs entirely in the page. Version 0.1 covers the editor core and layout: shapes, text, frames, auto layout, constraints, snapping, components, variants and shared styles. Pen tools, booleans, gradients, images, prototyping and imports are planned, not built.
+You want to design a screen, keep a component library and hand someone code or a PDF, and you do not want an account, a subscription or a file that only opens in someone else's cloud. Figger keeps the document as readable JSON on your disk and runs entirely in the page. It has frames with auto layout (row, column, wrap, grid), constraints, components with variants and properties, colour, text and effect styles, variables with modes, the pen and booleans, gradients, images, shadows and blurs, mixed text styles, prototypes with Smart Animate, pages and an inspect mode. It imports SVG and Figma REST JSON and exports PNG, JPG, WebP, SVG, PDF, Android XML, HTML/CSS and React. Live collaboration, plugins, comments and `.fig` files are not built; `plan/research/parity-figcraft.md` lists every gap.
 
 Figger ports the architecture of [storytold/figcraft](https://github.com/storytold/figcraft) (one command registry, a persistent document model, instances materialised from their mains) and uses the browser's own canvas, text shaping and accessibility tree in place of FigCraft's Rust renderer and UI.
 
@@ -43,7 +43,11 @@ A full Canvas2D render of 10,000 layers takes 104.7 ms (median of 30) on an M4 P
 
 ## Working with components
 
-Select a frame and press **⌘⌥K** to make it a main component; **⌘⌥I** places an instance beside it. Edits to the main reach every instance, and a change you make inside an instance (text, colour, visibility) stays as an override until you press Reset. Name several mains `State=Default`, `State=Hover` and choose **Combine as variants**; each instance then shows a menu for every variant property.
+Select a frame and press **⌘⌥K** to make it a main component; **⌘⌥I** places an instance beside it. Edits to the main reach every instance, and a change you make inside an instance (text, colour, visibility) stays as an override until you press Reset. Name several mains `State=Default`, `State=Hover` and choose **Combine as variants**; each instance then shows a menu for every variant property. Add text, boolean or instance-swap properties on the main, and each instance gets its own field for them.
+
+## Prototyping and handoff
+
+Give a layer an interaction in the Prototype section (navigate, overlay, back or link, with Smart Animate or a slide), then press **⌥⌘Enter** to present. **Shift+D** switches the panel to inspect mode, which shows measurements and CSS, and **⌥⌘C** opens the code for the selection as HTML/CSS or React.
 
 ## Where your files live
 
@@ -66,7 +70,7 @@ Every menu item, shortcut and palette entry runs a command from one registry. Th
 npm run check
 ```
 
-The check fails if the build breaks, if any of the 21 Node tests fails, or if the inlined SDK differs from `https://naklios.dev/sdk/naklios.js`. Drawing, snapping, resizing, rotation, undo and redo, auto layout, the palette, text editing, components, exports and reload persistence were driven with real input in Chrome on 2026-11-11; that drive is not yet a committed test.
+The check fails if the build breaks, if any of the 55 Node tests fails, or if the inlined SDK differs from `https://naklios.dev/sdk/naklios.js`; CI also fails when `index.html` or `commands.json` differs from a fresh build. Ten of the tests feed hostile documents, SVG files and agent calls (script injection, endless loops, structure rewrites). The editor core was driven with real input in Chrome on 2026-11-11, and layers 3 to 5 with synthetic events in the page; those drives are not committed tests.
 
 ## License
 
