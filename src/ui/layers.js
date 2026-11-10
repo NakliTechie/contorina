@@ -1,7 +1,7 @@
 // Layers panel: the document tree, front-most layer on top.
 import { h, clear } from './dom.js';
 import { sweepToggle } from './numfield.js';
-import { state, subscribe } from '../store.js';
+import { state, subscribe, nextFrame } from '../store.js';
 import { ancestors } from '../doc.js';
 
 const ICON = { frame: '#', rect: '▢', ellipse: '○', line: '╱', text: 'T', instance: '◇' };
@@ -10,7 +10,28 @@ const MAX_ROWS = 600;
 export function createLayers(root, app) {
   const expanded = new Set();
   const list = h('div.layers-list', { role: 'tree', 'aria-label': 'Layers' });
-  root.append(h('div.panel-head', 'Layers'), list);
+  const pagesEl = h('div.pages', { role: 'tablist', 'aria-label': 'Pages' });
+  root.append(h('div.panel-head', h('span', 'Pages'), h('button.ly-toggle', { type: 'button', title: 'New page', 'aria-label': 'New page', on: { click: () => app.run('page.add', {}) } }, '+')), pagesEl, h('div.panel-head', 'Layers'), list);
+  function renderPages() {
+    const doc = state.doc;
+    const pages = doc.pages || [{ id: 'page1', name: 'Page 1' }];
+    clear(pagesEl);
+    for (const g of pages) {
+      const on = (doc.page || 'page1') === g.id;
+      const row = h('div.page-row' + (on ? '.sel' : ''), { role: 'tab', 'aria-selected': on ? 'true' : 'false', on: {
+        click: () => { if (!on) app.run('page.open', { id: g.id }); },
+        dblclick: () => {
+          const input = h('input.ly-rename', { type: 'text', value: g.name });
+          row.replaceChildren(input); input.focus(); input.select();
+          let done = false;
+          const fin = (ok) => { if (done) return; done = true; if (ok && input.value.trim() && input.value !== g.name) app.run('page.rename', { id: g.id, name: input.value.trim() }); else renderPages(); };
+          input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') fin(true); if (e.key === 'Escape') fin(false); });
+          input.addEventListener('blur', () => fin(true));
+        },
+      } }, h('span.ly-name', g.name), pages.length > 1 ? h('button.ly-toggle', { type: 'button', title: 'Delete page', 'aria-label': 'Delete page', on: { click: async (e) => { e.stopPropagation(); if (await app.confirm(`Delete page “${g.name}”?`, 'Its layers are deleted too. Undo brings them back.', 'Delete', true)) app.run('page.delete', { id: g.id }); } } }, '×') : null);
+      pagesEl.append(row);
+    }
+  }
   let dragIds = null;
 
   function icon(n) {
@@ -21,6 +42,7 @@ export function createLayers(root, app) {
   }
 
   function render() {
+    renderPages();
     const doc = state.doc;
     for (const id of state.selection) for (const a of ancestors(doc, id)) expanded.add(a);
     clear(list);
@@ -106,7 +128,7 @@ export function createLayers(root, app) {
     if (what.has('preview') && !what.has('selection')) return; // skip mid-drag rebuilds
     if (queued) return;
     queued = true;
-    requestAnimationFrame(() => { queued = false; if (!list.querySelector('.ly-rename')) render(); });
+    nextFrame(() => { queued = false; if (!list.querySelector('.ly-rename')) render(); });
   });
   render();
   return { render };

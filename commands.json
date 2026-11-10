@@ -931,6 +931,418 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "variable.createCollection",
+      "description": "New variable collection",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "variable.addMode",
+      "description": "Add a mode (for example Dark) to a collection; every variable copies its first mode's value.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection"
+        ]
+      }
+    },
+    {
+      "name": "variable.renameMode",
+      "description": "Rename variable mode",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "mode",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "variable.create",
+      "description": "Create a variable (type color, number, string or boolean) in a collection with a value for its first mode.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "color",
+              "number",
+              "string",
+              "boolean"
+            ]
+          },
+          "value": {},
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "name",
+          "type",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "variable.set",
+      "description": "Set a variable's value in one mode; value may be {alias: variableId}.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "id",
+          "mode",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "variable.rename",
+      "description": "Rename variable",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "variable.delete",
+      "description": "Delete a variable; layers bound to it keep their current values.",
+      "scope": "destructive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "node.bindVariable",
+      "description": "Bind a layer property (fill, stroke, w, h, opacity, radius, strokeWidth, fontSize, gap, padding, text, name, visible) to a variable, or unbind with variable null.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "prop": {
+            "type": "string"
+          },
+          "variable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prop",
+          "variable"
+        ]
+      }
+    },
+    {
+      "name": "node.setMode",
+      "description": "Choose which mode of a collection a frame or instance (and everything inside it) uses; mode null inherits.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "mode"
+        ]
+      }
+    },
+    {
+      "name": "proto.set",
+      "description": "Set what happens in present mode when a layer is clicked or hovered: navigate to a frame, open an overlay, go back, or open a URL. proto null removes it.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "proto": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "proto"
+        ]
+      }
+    },
+    {
+      "name": "proto.setStart",
+      "description": "Set as prototype start",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "page.add",
+      "description": "New page",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "page.open",
+      "description": "Go to page",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "page.rename",
+      "description": "Rename page",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "page.delete",
+      "description": "Delete page",
+      "scope": "destructive",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "node.moveToPage",
+      "description": "Move to page",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "page": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "page"
+        ]
+      }
+    },
+    {
+      "name": "layout.setGrids",
+      "description": "Set a frame's layout grids: [{type: columns|rows|grid, count, gutter, margin, size, color}]. Grids show on the canvas only.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "grids": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "grids"
+        ]
+      }
+    },
+    {
+      "name": "import.svg",
+      "description": "Import SVG markup as a frame of editable layers at (x, y): rectangles and ellipses stay shapes, other elements become vectors, groups become frames.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "svg": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "svg"
+        ]
+      }
+    },
+    {
+      "name": "import.figma",
+      "description": "Import Figma REST API JSON (a file with ?geometry=paths, or a nodes response) as new pages. Best effort: image fills become grey, instances arrive detached.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "json": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "json"
+        ]
+      }
+    },
+    {
+      "name": "export.code",
+      "description": "Return code for layers (default: selection, else the page): format html (a full HTML page with CSS), react (a JSX component) or css (declarations for the first layer).",
+      "scope": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "html",
+              "react",
+              "css"
+            ]
+          }
+        },
+        "required": [
+          "format"
+        ]
+      }
     }
   ],
   "_note": "Document commands only; view, selection and file commands register at run time from the same registry."

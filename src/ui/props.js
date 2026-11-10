@@ -9,6 +9,7 @@ import { variantSetOf, variantProps } from '../components.js';
 import { DEFAULT_LAYOUT } from '../layout.js';
 import { paintList, effectsEditor } from './paint-editor.js';
 import { BLEND_MODES } from '../paint.js';
+import { variablesSection, bindingSection, protoSection, gridsSection, inspectView } from './props-extra.js';
 
 const WEIGHTS = [[100, 'Thin'], [300, 'Light'], [400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [900, 'Black']];
 
@@ -72,11 +73,12 @@ export function createProps(root, app) {
 
   function structureKey() {
     const ns = nodes();
-    if (!ns.length) return 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
+    const extra = '|' + !!state.inspect + JSON.stringify(state.doc.variables || null).length + JSON.stringify(state.doc.variables || null) + (state.doc.flowStart || '');
+    if (!ns.length) return extra + 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
     return ns.map((n) => {
       const p = n.parent && state.doc.nodes[n.parent];
-      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase].join('|');
-    }).join(';') + Object.keys(state.doc.styles).join();
+      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null)].join('|');
+    }).join(';') + Object.keys(state.doc.styles).join() + extra;
   }
 
   function build() {
@@ -84,6 +86,10 @@ export function createProps(root, app) {
     clear(body);
     const ns = nodes();
     if (!ns.length) { buildDoc(); return; }
+    if (state.inspect) {
+      body.append(h('div.ps-row.pad', button('← Design', () => app.run('view.inspect'), { title: 'Shift+D' })), inspectView(state.doc, ns, app));
+      return;
+    }
     const one = ns.length === 1 ? ns[0] : null;
     const allType = (t) => ns.every((n) => n.type === t);
     const doc = state.doc;
@@ -243,7 +249,13 @@ export function createProps(root, app) {
           select(common((n) => n.autoSize || 'width'), [['width', 'Auto width'], ['height', 'Auto height'], ['fixed', 'Fixed size']], (v) => setProps({ autoSize: v }), 'Text box sizing'))));
     }
 
-    body.append(section('Export', h('div.ps-row', button('PNG', () => app.run('export.png', { ids: state.selection.slice(), download: true })), button('SVG', () => app.run('export.svg', { ids: state.selection.slice(), download: true })))));
+    const vb = !ns.some((n) => n.src) && bindingSection(doc, ns, app);
+    if (vb) body.append(vb);
+    if (one && !one.src && one.type === 'frame') body.append(gridsSection(one, app, fields));
+    if (one && !one.src) body.append(protoSection(doc, one, app));
+    const ids = () => state.selection.slice();
+    body.append(section('Export', h('div.ps-row', button('PNG', () => app.run('export.png', { ids: ids(), download: true })), button('JPG', () => app.run('export.jpg', { ids: ids(), download: true })), button('SVG', () => app.run('export.svg', { ids: ids(), download: true })), button('PDF', () => app.run('export.pdf', { ids: ids(), download: true }))),
+      h('div.ps-row', button('Code…', () => app.run('code.show')), button('Inspect', () => app.run('view.inspect'), { title: 'Shift+D' }))));
   }
 
   function buildDoc() {
@@ -268,6 +280,7 @@ export function createProps(root, app) {
       h('div.ps-row', button('+ Colour', () => app.run('style.create', { type: 'color', name: `Color ${styles.filter(([, s]) => s.type === 'color').length + 1}`, value: '#0D99FF' })),
         button('+ Text', () => app.run('style.create', { type: 'text', name: `Text ${styles.filter(([, s]) => s.type === 'text').length + 1}`, fontSize: 16 })))));
     const mains = Object.values(doc.nodes).filter((n) => n.component && !n.src);
+    body.append(variablesSection(doc, app));
     body.append(section('Components', mains.length ? mains.map((m) => h('div.ps-row.comp-row', h('span.ps-comp', '❖ ' + m.name), button('Insert', () => {
       const c = app.viewCenter();
       app.run('component.instance', { mainId: m.id, x: Math.round(c.x - m.w / 2), y: Math.round(c.y - m.h / 2) });

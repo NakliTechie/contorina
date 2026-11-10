@@ -2,10 +2,15 @@
 // (window.figger in the page, the NakliOS common rail when hosted). Both doors call the same registry.
 import './commands.js';
 import './commands-vector.js';
+import './commands-layer4.js';
+import './commands-layer5.js';
+import { startPresentation } from './present.js';
+import { toPDF } from './pdf.js';
+import { toRaster } from './export.js';
 import { createVectorTools } from './pen.js';
 import { setImageReadyHandler } from './paint.js';
 import { register, run, setRunner, manifest, comboOf, findByKey, checkParams, get, all, keyLabel, isMac } from './registry.js';
-import { state, commit, preview, setSelection, undo, redo, replaceDoc, notify, subscribe, canUndo, canRedo } from './store.js';
+import { state, commit, preview, setSelection, undo, redo, replaceDoc, notify, subscribe, canUndo, canRedo, nextFrame } from './store.js';
 import { Tx, validateDoc, topmost, emptyDoc, descendants, hasLayout } from './doc.js';
 import { resolve } from './resolve.js';
 import { worldBox, unionBoxes, worldMatrix, apply, round2 } from './geom.js';
@@ -90,6 +95,7 @@ app.isMod = (e) => (isMac ? e.metaKey : e.ctrlKey);
 app.redraw = () => notify('overlay');
 app.confirm = confirmDialog;
 app.storageLabel = () => (store ? store.label() : '…');
+app.liveNode = (id) => state.doc.nodes[id];
 
 // ---- app commands -----------------------------------------------------------------------------------
 let clip = null;
@@ -144,7 +150,10 @@ register(
   { id: 'edit.paste', label: 'Paste', group: 'Edit', keys: ['Mod+V'], noRail: true, run: async () => {
     let tree = clip;
     if (!tree) {
-      try { const t = JSON.parse(await navigator.clipboard.readText()); if (t && t.figger) tree = t; } catch {}
+      let text = '';
+      try { text = await navigator.clipboard.readText(); } catch {}
+      try { const t = JSON.parse(text); if (t && t.figger) tree = t; } catch {}
+      if (!tree && text && (await importText(text, 'Pasted SVG'))) return;
     }
     if (!tree) return;
     const target = state.selection.length === 1 && state.doc.nodes[state.selection[0]]?.type === 'frame' && !state.doc.nodes[state.selection[0]].src ? state.selection[0] : null;
@@ -207,6 +216,43 @@ register(
       return await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
     },
   },
+  ...[['jpg', 'image/jpeg', 'JPG'], ['webp', 'image/webp', 'WebP']].map(([ext, type, label]) => ({
+    id: 'export.' + ext, label: `Export ${label} (2x)`, group: 'Export',
+    description: `Export the given layers (default: selection, else everything) as ${label}; returns a data URL; download saves a file.`,
+    params: { ids: { type: 'array' }, scale: { type: 'number' }, quality: { type: 'number' }, download: { type: 'boolean' } },
+    run: async (p, e, o) => {
+      const blob = await toRaster(state.doc, selOrAll(p), { scale: p.scale || 2, type, quality: p.quality ?? 0.9 });
+      if (p.download || (o && o.source !== 'agent' && p.download !== false)) { download(blob, safeName(state.doc.name).replace(EXT, '.' + ext)); return { bytes: blob.size }; }
+      return await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
+    },
+  })),
+  {
+    id: 'export.pdf', label: 'Export PDF', group: 'Export', keys: ['Shift+Mod+F'],
+    description: 'Export the given layers (default: selection, else every top-level layer), one page each, as a vector PDF; returns base64 for agents; download saves a file.',
+    params: { ids: { type: 'array' }, download: { type: 'boolean' } },
+    run: async (p, e, o) => {
+      const ids = selOrAll(p);
+      const images = await jpegAssets(state.doc, ids);
+      const bytes = toPDF(state.doc, ids, { images });
+      if (p.download || (o && o.source !== 'agent' && p.download !== false)) { download(new Blob([bytes], { type: 'application/pdf' }), safeName(state.doc.name).replace(EXT, '.pdf')); return { bytes: bytes.length }; }
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    },
+  },
+  {
+    id: 'code.show', label: 'Show code (HTML, React, CSS)', group: 'Export', keys: ['Alt+Mod+C'], noRail: true,
+    run: () => showCode(),
+  },
+  { id: 'view.inspect', label: 'Toggle inspect mode', group: 'View', keys: ['Shift+D'], noRail: true, run: () => { state.inspect = !state.inspect; notify('selection', 'inspect'); } },
+  {
+    id: 'present.start', label: 'Present prototype', group: 'Prototype', keys: ['Alt+Mod+Enter'], noRail: true,
+    run: () => {
+      const sel = state.selection.map((id) => state.doc.nodes[id]).find((n) => n && !n.parent && n.type === 'frame');
+      app.presentation = startPresentation(state.doc, sel && sel.id, { onExit: () => { app.presentation = null; app.focusCanvas(); } });
+    },
+  },
+  { id: 'file.import', label: 'Import SVG or Figma JSON…', group: 'File', keys: ['Shift+Mod+I'], personOnly: true, run: () => pickImport() },
   { id: 'file.new', label: 'New document', group: 'File', scope: 'destructive', personOnly: true, run: async () => {
     if (!(await confirmDialog('Start a new document?', 'The open document is replaced. Undo brings it back while this tab stays open.', 'New document'))) return;
     run('doc.load', { doc: emptyDoc() });
@@ -249,6 +295,73 @@ async function saveFile(as) {
   toast(`Saved ${name}`);
 }
 
+// JPEG bytes of every image asset the export uses, for the PDF writer.
+async function jpegAssets(doc, ids) {
+  const used = new Set();
+  const walk = (id) => { const n = doc.nodes[id]; if (!n) return; for (const p of [].concat(n.fill || [])) if (p && p.type === 'image') used.add(p.asset); (n.children || []).forEach(walk); };
+  ids.forEach(walk);
+  const out = {};
+  for (const aid of used) {
+    const a = doc.assets[aid];
+    if (!a) continue;
+    try {
+      const bm = await createImageBitmap(await (await fetch(`data:${a.mime};base64,${a.data}`)).blob());
+      const c = new OffscreenCanvas(bm.width, bm.height);
+      const x = c.getContext('2d');
+      x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, bm.width, bm.height); x.drawImage(bm, 0, 0);
+      out[aid] = { jpeg: new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 })).arrayBuffer()), w: bm.width, h: bm.height };
+      bm.close();
+    } catch { /* an undecodable image prints as grey */ }
+  }
+  return out;
+}
+
+async function importText(text, name, at) {
+  const c = at || app.viewCenter();
+  if (/^\s*(<\?xml[\s\S]*?\?>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[^>]*>\s*)?<svg[\s>]/i.test(text)) {
+    const id = run('import.svg', { svg: text, x: Math.round(c.x), y: Math.round(c.y), name: (name || 'SVG').replace(/\.svg$/i, '') });
+    if (id) toast(`Imported ${name || 'SVG'}`);
+    return true;
+  }
+  let json = null;
+  try { json = JSON.parse(text); } catch { return false; }
+  if (json && (json.document || json.nodes) && !json.children) {
+    const n = run('import.figma', { json });
+    if (n) toast(`Imported ${n} page${n === 1 ? '' : 's'} from Figma JSON`);
+    return true;
+  }
+  return false;
+}
+function pickImport() {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'file', accept: '.svg,image/svg+xml,.json,application/json' });
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (f && !(await importText(await f.text(), f.name))) toast(`${f.name} is not SVG or Figma JSON`, 'error');
+      resolve();
+    };
+    input.click();
+  });
+}
+
+function showCode() {
+  const ids = state.selection.length ? state.selection.slice() : state.doc.children.slice();
+  let format = 'html';
+  const pre = h('pre.code');
+  const set = (f) => { format = f; pre.textContent = run('export.code', { ids, format: f }); tabs.forEach((t) => t.classList.toggle('on', t.dataset.f === f)); };
+  const tabs = [['html', 'HTML + CSS'], ['react', 'React'], ['css', 'CSS (first layer)']].map(([f, l]) => { const b = h('button', { type: 'button', on: { click: () => set(f) } }, l); b.dataset.f = f; return b; });
+  const close = () => { d.close(); d.remove(); };
+  const d = h('dialog.dlg.wide', h('h2', 'Code'), h('div.seg', tabs), pre,
+    h('div.dlg-buttons',
+      h('button', { type: 'button', on: { click: async () => { try { await navigator.clipboard.writeText(pre.textContent); toast('Copied'); } catch { toast('Copy failed; select the text instead', 'error'); } } } }, 'Copy'),
+      h('button', { type: 'button', on: { click: () => download(new Blob([pre.textContent], { type: 'text/plain' }), safeName(state.doc.name).replace(EXT, format === 'react' ? '.jsx' : format === 'css' ? '.css' : '.html')) } }, 'Download'),
+      h('button.primary', { type: 'button', on: { click: close } }, 'Close')));
+  d.addEventListener('keydown', (e) => e.stopPropagation());
+  document.body.appendChild(d);
+  d.showModal();
+  set('html');
+}
+
 async function readImage(file) {
   if (!/^image\//.test(file.type)) throw new Error(`${file.name} is not an image`);
   const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
@@ -284,7 +397,7 @@ function showShortcuts() {
 
 // ---- keys -----------------------------------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
-  if (document.querySelector('dialog[open], .palette')) return;
+  if (document.querySelector('dialog[open], .palette, .present')) return;
   if (isTyping(e.target)) return;
   if (fieldKey(e)) return;
   if (app.vectorTools && app.vectorTools.active) {
@@ -427,7 +540,7 @@ async function boot() {
   store = pickStore();
   startSaver();
   await loadWorking();
-  requestAnimationFrame(() => run('view.fit'));
+  nextFrame(() => run('view.fit'));
   subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · Figger`; });
 
   // Drop a .figger.json file anywhere to open it.
@@ -441,7 +554,12 @@ async function boot() {
       try { await placeImageFile(f, app.canvas.toWorld(e.clientX - r.left, e.clientY - r.top)); } catch (err) { report(err); }
       return;
     }
-    try { await loadText(await f.text(), f.name); } catch (err) { toast(`Could not open ${f.name}: ${err.message}`, 'error'); }
+    try {
+      const text = await f.text();
+      const r = app.canvas.el.getBoundingClientRect();
+      if (!/\.figger\.json$/i.test(f.name) && (await importText(text, f.name, app.canvas.toWorld(e.clientX - r.left, e.clientY - r.top)))) return;
+      await loadText(text, f.name);
+    } catch (err) { toast(`Could not open ${f.name}: ${err.message}`, 'error'); }
   });
 }
 

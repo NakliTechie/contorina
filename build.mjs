@@ -21,6 +21,8 @@ writeFileSync('index.html', html);
 globalThis.navigator ??= { platform: 'build' };
 await import('./src/commands.js');
 await import('./src/commands-vector.js');
+await import('./src/commands-layer4.js');
+await import('./src/commands-layer5.js');
 const { all, inputSchema } = await import('./src/registry.js');
 const commands = all().map((c) => ({ name: c.id, description: c.description || c.label, scope: c.scope, input: inputSchema(c) }));
 const manifest = {

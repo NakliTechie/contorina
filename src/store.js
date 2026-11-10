@@ -23,6 +23,13 @@ const listeners = new Set();
 let pending = new Set();
 let scheduled = false;
 
+// Run fn on the next frame, or after a short timer when the page is hidden (no frames arrive then).
+export function nextFrame(fn) {
+  if (typeof document !== 'undefined' && document.hidden) setTimeout(fn, 16);
+  else if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(fn);
+  else queueMicrotask(fn);
+}
+
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 export function notify(...what) {
   for (const w of what) pending.add(w);
@@ -34,10 +41,8 @@ export function notify(...what) {
     pending = new Set();
     for (const fn of listeners) fn(p);
   };
-  // Hidden pages (a background tab, a minimized NakliOS window) get no animation frames; use a timer.
-  if (typeof requestAnimationFrame !== 'undefined' && !(typeof document !== 'undefined' && document.hidden)) requestAnimationFrame(flush);
-  else if (typeof document !== 'undefined') setTimeout(flush, 16);
-  else queueMicrotask(flush);
+  // Hidden pages (a background tab, a minimized NakliOS window) get no animation frames.
+  nextFrame(flush);
 }
 
 function cleanSelection(doc, sel) { return sel.filter((id) => doc.nodes[id]); }

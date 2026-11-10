@@ -117,6 +117,11 @@ register(
         const geom = {}, rest = {};
         for (const [k, v] of Object.entries(p.props)) (GEOM.has(k) ? geom : rest)[k] = v;
         if (n.src) { writeOverride(tx, id, rest); continue; }
+        // Setting a bound property directly detaches it from its variable.
+        if (n.bind && Object.keys(p.props).some((k) => k in n.bind)) {
+          const b = Object.fromEntries(Object.entries(n.bind).filter(([k]) => !(k in p.props)));
+          tx.set(id, { bind: Object.keys(b).length ? b : undefined });
+        }
         if (Object.keys(geom).length) setGeometry(tx, id, geom);
         if (Object.keys(rest).length) writeProps(tx, id, rest);
       }

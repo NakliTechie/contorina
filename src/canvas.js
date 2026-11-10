@@ -147,6 +147,7 @@ export function createCanvas(wrap, app) {
         label(String(l.len), (a.x + b.x) / 2, (a.y + b.y) / 2, '#F24822');
       }
     }
+    drawGrids();
     if (app.vectorTools) app.vectorTools.overlay(ctx, toScreen);
     if (state.marquee) {
       const m = state.marquee;
@@ -155,6 +156,44 @@ export function createCanvas(wrap, app) {
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
       ctx.strokeStyle = SEL;
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x, b.y - a.y);
+    }
+  }
+
+  // Layout grids: columns, rows or a square grid, inside every visible frame that has them.
+  function drawGrids() {
+    const doc = state.doc;
+    for (const id in doc.nodes) {
+      const n = doc.nodes[id];
+      if (!n.grids || n.visible === false || n.type !== 'frame') continue;
+      const m = worldMatrix(doc, id);
+      const z = state.view.zoom;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(dpr * z * m[0], dpr * z * m[1], dpr * z * m[2], dpr * z * m[3], dpr * (z * m[4] + state.view.x), dpr * (z * m[5] + state.view.y));
+      ctx.beginPath(); ctx.rect(0, 0, n.w, n.h); ctx.clip();
+      for (const g of n.grids) {
+        if (g.visible === false) continue;
+        ctx.fillStyle = g.color || 'rgba(255,0,0,0.1)';
+        ctx.strokeStyle = g.color || 'rgba(255,0,0,0.1)';
+        if (g.type === 'grid') {
+          const sz = Math.max(1, g.size || 8);
+          ctx.lineWidth = 1 / z;
+          ctx.beginPath();
+          for (let x = sz; x < n.w; x += sz) { ctx.moveTo(x, 0); ctx.lineTo(x, n.h); }
+          for (let y = sz; y < n.h; y += sz) { ctx.moveTo(0, y); ctx.lineTo(n.w, y); }
+          ctx.stroke();
+          continue;
+        }
+        const cols = g.type === 'columns';
+        const total = cols ? n.w : n.h, count = Math.max(1, g.count || 1), gut = g.gutter || 0, mar = g.margin || 0;
+        const size = (total - 2 * mar - gut * (count - 1)) / count;
+        for (let i = 0; i < count; i++) {
+          const a = mar + i * (size + gut);
+          if (cols) ctx.fillRect(a, 0, size, n.h); else ctx.fillRect(0, a, n.w, size);
+        }
+      }
+      ctx.restore();
     }
   }
 
