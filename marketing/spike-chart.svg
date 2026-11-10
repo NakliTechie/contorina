@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="236" viewBox="0 0 720 236" font-family="system-ui, sans-serif" font-size="13">
+<rect width="720" height="236" fill="#fff"/>
+<text x="16" y="24" font-weight="600" fill="#1e1e1e">Canvas2D renderer spike, median of 30 runs (ms, lower is better)</text>
+<text x="16" y="62" fill="#1e1e1e">Full render, 10k layers</text><rect x="250" y="48" width="373.913043478261" height="20" rx="3" fill="#0D99FF"/><text x="629.913043478261" y="63" fill="#1e1e1e">104.7</text>
+<text x="16" y="106" fill="#1e1e1e">Move one layer, full redraw</text><rect x="250" y="92" width="332.12906440762436" height="20" rx="3" fill="#0D99FF"/><text x="588.1290644076244" y="107" fill="#1e1e1e">93</text>
+<text x="16" y="150" fill="#1e1e1e">Move one layer, dirty rectangle</text><rect x="250" y="136" width="30.355882230804355" height="20" rx="3" fill="#0D99FF"/><text x="286.35588223080435" y="151" fill="#1e1e1e">8.5</text>
+<text x="16" y="194" fill="#1e1e1e">Edit one layer (document copy)</text><rect x="250" y="180" width="13.57086499730076" height="20" rx="3" fill="#0D99FF"/><text x="269.57086499730076" y="195" fill="#1e1e1e">3.8</text>
+<line x1="309.64038038287447" y1="40" x2="309.64038038287447" y2="226" stroke="#F24822" stroke-dasharray="4 3"/><text x="313.64038038287447" y="224" fill="#F24822" font-size="11">16.7 ms (one frame at 60 Hz)</text>
+</svg>

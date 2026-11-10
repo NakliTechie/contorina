@@ -1,0 +1,23 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - run: node scripts/vendor-naklios-sdk.mjs --file src/shell.html --check
+      - name: index.html and commands.json match the sources
+        run: node build.mjs && git diff --exit-code -- index.html commands.json

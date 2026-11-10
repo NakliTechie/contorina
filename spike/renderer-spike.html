@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Figger renderer spike</title>
+<style>body{font:13px system-ui;margin:16px}canvas{border:1px solid #ddd;width:1200px;height:800px}pre{background:#f5f5f5;padding:10px}</style>
+</head>
+<body>
+<h1>Canvas2D renderer spike: 10,000 rectangles</h1>
+<p>Serve the repository root over HTTP and open this page. It uses Figger's own renderer (<code>src/render.js</code>). Observed timings, not a benchmark.</p>
+<pre id="out">running…</pre>
+<canvas id="c" width="2400" height="1600"></canvas>
+<script type="module">
+import { Tx, emptyDoc, makeNode } from '../src/doc.js';
+import { drawView, drawNodes } from '../src/render.js';
+import { worldBox } from '../src/geom.js';
+
+const N = 10000, RUNS = 30;
+const tx = new Tx(emptyDoc('spike'));
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const colors = ['#0D99FF', '#F24822', '#14AE5C', '#FFCD29', '#9747FF', '#D9D9D9'];
+for (let i = 0; i < N; i++) {
+  tx.add(makeNode('rect', { x: Math.round(rnd() * 1150), y: Math.round(rnd() * 760), w: 8 + Math.round(rnd() * 40), h: 8 + Math.round(rnd() * 30),
+    radius: i % 3 ? 0 : 4, fill: colors[i % colors.length], stroke: i % 5 ? null : '#1E1E1E', rotation: i % 7 ? 0 : 15 }));
+}
+let doc = tx.doc;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const view = { x: 0, y: 0, zoom: 1 }, size = { w: 1200, h: 800 }, dpr = 2;
+const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+const flush = () => ctx.getImageData(0, 0, 1, 1); // force the GPU-backed canvas to finish
+
+function full() { drawView(ctx, doc, view, size, dpr); flush(); }
+// Dirty-rectangle redraw: clip to the union of the moved layer's old and new boxes and draw only what touches it.
+function dirty(box) {
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.beginPath(); ctx.rect(box.x - 2, box.y - 2, box.w + 4, box.h + 4); ctx.clip();
+  ctx.fillStyle = '#F5F5F5'; ctx.fillRect(box.x - 2, box.y - 2, box.w + 4, box.h + 4);
+  drawNodes(ctx, doc, doc.children, { cull: { x: box.x - 2, y: box.y - 2, w: box.w + 4, h: box.h + 4 } });
+  ctx.restore();
+  flush();
+}
+const t = (fn) => { const a = performance.now(); fn(); return performance.now() - a; };
+
+full(); full();
+const fullT = [], moveFullT = [], moveDirtyT = [], editT = [];
+for (let i = 0; i < RUNS; i++) fullT.push(t(full));
+const id = doc.children[N / 2];
+for (let i = 0; i < RUNS; i++) {
+  const before = worldBox(doc, id);
+  editT.push(t(() => { const x = new Tx(doc); x.set(id, { x: doc.nodes[id].x + 3 }); doc = x.doc; }));
+  moveFullT.push(t(full));
+}
+for (let i = 0; i < RUNS; i++) {
+  const before = worldBox(doc, id);
+  const x = new Tx(doc); x.set(id, { x: doc.nodes[id].x + 3 }); doc = x.doc;
+  const after = worldBox(doc, id);
+  const u = { x: Math.min(before.x, after.x), y: Math.min(before.y, after.y), w: Math.max(before.x + before.w, after.x + after.w) - Math.min(before.x, after.x), h: Math.max(before.y + before.h, after.y + after.h) - Math.min(before.y, after.y) };
+  moveDirtyT.push(t(() => dirty(u)));
+}
+const r = {
+  layers: N, runs: RUNS, devicePixelRatio: dpr, canvas: '2400x1600',
+  fullRenderMedianMs: +median(fullT).toFixed(2), fullRenderMaxMs: +Math.max(...fullT).toFixed(2),
+  editOneLayerTxMedianMs: +median(editT).toFixed(3),
+  moveOneLayerFullRedrawMedianMs: +median(moveFullT).toFixed(2),
+  moveOneLayerDirtyRectMedianMs: +median(moveDirtyT).toFixed(2),
+  userAgent: navigator.userAgent,
+};
+document.getElementById('out').textContent = JSON.stringify(r, null, 2);
+window.spikeResult = r;
+</script>
+</body>
+</html>
