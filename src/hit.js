@@ -1,5 +1,12 @@
 // Hit testing and the selection rule.
 import { localMatrix, mul, inv, apply, IDENT, worldBox, intersects } from './geom.js';
+import { pathOf } from './render.js';
+
+let hitCtx;
+function ctx2d() {
+  if (hitCtx === undefined) { try { hitCtx = new OffscreenCanvas(1, 1).getContext('2d'); } catch { hitCtx = null; } }
+  return hitCtx;
+}
 
 // Returns the chain of ids from a top-level node down to the front-most hit leaf, or [].
 export function hitChain(doc, p, tol = 3, exclude = null) {
@@ -24,6 +31,14 @@ function hitNode(doc, id, p, parentM, tol, exclude) {
   }
   if (n.locked) return null;
   if (n.type === 'line') return Math.abs(q.y) <= tol + (n.strokeWidth || 0) / 2 && q.x >= -tol && q.x <= n.w + tol ? [id] : null;
+  if (n.type === 'vector' || n.type === 'polygon' || n.type === 'star') {
+    const c = ctx2d();
+    if (!c || !inside) return inside && !c ? [id] : null;
+    const path = pathOf(n);
+    if (n.fill && c.isPointInPath(path, q.x, q.y, n.fillRule === 'evenodd' ? 'evenodd' : 'nonzero')) return [id];
+    c.lineWidth = Math.max(n.strokeWidth || 0, tol * 2);
+    return c.isPointInStroke(path, q.x, q.y) ? [id] : null;
+  }
   if (n.type === 'ellipse') {
     const rx = n.w / 2 + tol, ry = n.h / 2 + tol, dx = q.x - n.w / 2, dy = q.y - n.h / 2;
     return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1 ? [id] : null;

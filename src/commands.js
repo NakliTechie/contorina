@@ -14,11 +14,32 @@ const pm = (tx, pid) => (pid ? worldMatrix(tx.doc, pid) : IDENT);
 const centerWorld = (tx, id) => { const n = tx.get(id); return apply(worldMatrix(tx.doc, id), { x: n.w / 2, y: n.h / 2 }); };
 const editable = (tx, id) => { const n = tx.get(id); return n && !n.src && !n.locked; };
 
+const angleOf = (m) => (Math.atan2(m[1], m[0]) * 180) / Math.PI;
 function placeCentered(tx, id, pid, worldC, index) {
   const n = tx.get(id);
   const lc = apply(inv(pm(tx, pid)), worldC);
+  // Keep the angle on screen: add the old parent's rotation, subtract the new one's.
+  const turn = pid !== n.parent ? angleOf(pm(tx, n.parent)) - angleOf(pm(tx, pid)) : 0;
   if (pid !== n.parent || index != null) tx.place(id, pid, index);
-  tx.set(id, { x: round2(lc.x - n.w / 2), y: round2(lc.y - n.h / 2) });
+  const patch = { x: round2(lc.x - n.w / 2), y: round2(lc.y - n.h / 2) };
+  if (Math.abs(turn) > 1e-6) patch.rotation = round2((((n.rotation || 0) + turn + 180) % 360 + 360) % 360 - 180);
+  tx.set(id, patch);
+}
+
+// Write non-geometry properties on any layer: inside an instance they become overrides; on an
+// instance root, properties the main owns go to its $root overrides so the next sync keeps them.
+export function writeProps(tx, id, patch) {
+  const n = tx.get(id);
+  if (n.src) return writeOverride(tx, id, patch);
+  if (n.type === 'instance') {
+    const rootOv = { ...((n.overrides || {}).$root || {}) };
+    const direct = {};
+    for (const [k, v] of Object.entries(patch)) {
+      if (ROOT_KEYS.includes(k)) { if (v === undefined) delete rootOv[k]; else rootOv[k] = v; } else direct[k] = v;
+    }
+    return tx.set(id, { ...direct, overrides: { ...(n.overrides || {}), $root: rootOv } });
+  }
+  return tx.set(id, patch);
 }
 
 // Insertion index in an auto-layout parent from a parent-local point along the main axis.
@@ -97,12 +118,7 @@ register(
         for (const [k, v] of Object.entries(p.props)) (GEOM.has(k) ? geom : rest)[k] = v;
         if (n.src) { writeOverride(tx, id, rest); continue; }
         if (Object.keys(geom).length) setGeometry(tx, id, geom);
-        if (n.type === 'instance') {
-          const rootOv = { ...((n.overrides || {}).$root || {}) };
-          const direct = {};
-          for (const [k, v] of Object.entries(rest)) (ROOT_KEYS.includes(k) ? rootOv : direct)[k] = v;
-          tx.set(id, { ...direct, overrides: { ...(n.overrides || {}), $root: rootOv } });
-        } else if (Object.keys(rest).length) tx.set(id, rest);
+        if (Object.keys(rest).length) writeProps(tx, id, rest);
       }
     },
   },
@@ -246,7 +262,7 @@ register(
       const ids = sel(tx, p, env);
       if (!ids.length) return false;
       const v = p.value ?? !ids.every((id) => tx.get(id).visible !== false);
-      for (const id of ids) tx.get(id).src ? writeOverride(tx, id, { visible: v }) : tx.set(id, { visible: v });
+      for (const id of ids) writeProps(tx, id, { visible: v });
     },
   },
   {
@@ -345,7 +361,7 @@ register(
     doc(tx, p, env) {
       const ids = sel(tx, p, env).filter((id) => hasLayout(tx.get(id)) && !tx.get(id).src);
       if (!ids.length) return false;
-      for (const id of ids) tx.set(id, { layout: undefined, sizing: undefined });
+      for (const id of ids) writeProps(tx, id, tx.get(id).type === 'instance' ? { layout: null } : { layout: undefined, sizing: undefined });
     },
   },
   {
@@ -360,7 +376,7 @@ register(
         const L = { ...(n.layout || DEFAULT_LAYOUT), ...p.layout };
         if (n.src) continue;
         if (L.mode === 'none') { tx.set(id, { layout: undefined }); continue; }
-        if (n.type === 'instance') tx.set(id, { overrides: { ...(n.overrides || {}), $root: { ...((n.overrides || {}).$root || {}), layout: L } } });
+        if (n.type === 'instance') writeProps(tx, id, { layout: L });
         else tx.set(id, { layout: L, sizing: n.sizing || { h: 'hug', v: 'hug' } });
       }
     },
@@ -576,7 +592,7 @@ register(
         tx.setStyle(id, { type: 'color', name: p.name || `Color ${count}`, value });
       }
       const key = kind === 'fill' ? 'fillStyle' : kind === 'stroke' ? 'strokeStyle' : 'textStyle';
-      for (const sid of ids) if (kind !== 'text' || tx.get(sid).type === 'text') tx.get(sid).src ? writeOverride(tx, sid, { [key]: id }) : tx.set(sid, { [key]: id });
+      for (const sid of ids) if (kind !== 'text' || tx.get(sid).type === 'text') writeProps(tx, sid, { [key]: id });
       return { value: id };
     },
   },
@@ -621,13 +637,13 @@ register(
       for (const id of ids) {
         const n = tx.get(id);
         if (p.kind === 'text' && n.type !== 'text') continue;
-        let patch = { [key]: p.styleId || undefined };
+        let patch = { [key]: p.styleId || null };
         if (!p.styleId && old(id)) {
           const s = old(id);
           if (p.kind === 'text') for (const k of TEXT_KEYS) patch[k] = s[k];
           else patch[p.kind] = s.value;
         }
-        if (n.src) writeOverride(tx, id, patch); else tx.set(id, patch);
+        writeProps(tx, id, patch);
       }
     },
   },

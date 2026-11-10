@@ -19,6 +19,7 @@ export function numberField(opts) {
   const dec = opts.decimals ?? 2;
   const clamp = (v) => Math.min(opts.max ?? Infinity, Math.max(opts.min ?? -Infinity, v));
   const fmt = (v) => (v == null ? '' : String(Math.round(v * 10 ** dec) / 10 ** dec));
+  let shown = '';
   const input = h('input', { type: 'text', inputmode: 'decimal', spellcheck: false, 'aria-label': opts.title || opts.label });
   const lab = h('span.nf-label', { title: `${opts.title || opts.label}: drag to change (Shift fine, Ctrl snap)` }, opts.label);
   const el = h('label.nf', lab, input, opts.unit ? h('span.nf-unit', opts.unit) : null);
@@ -28,6 +29,7 @@ export function numberField(opts) {
       if (document.activeElement === input || api.dragging) return;
       const v = opts.get();
       input.value = fmt(v);
+      shown = input.value;
       input.placeholder = v == null ? 'Mixed' : '';
     },
     reset() { opts.apply(clamp(opts.def ?? 0), 'commit'); api.update(); },
@@ -42,7 +44,7 @@ export function numberField(opts) {
     const v0 = opts.get() ?? 0;
     let acc = 0, value = v0, moved = false;
     api.dragging = true;
-    lab.setPointerCapture(e.pointerId);
+    try { lab.setPointerCapture(e.pointerId); } catch {}
     try { lab.requestPointerLock?.({ unadjustedMovement: true })?.catch?.(() => {}); } catch {}
     const move = (ev) => {
       acc += ev.movementX || 0;
@@ -86,23 +88,28 @@ export function numberField(opts) {
   };
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
-    if (e.key === 'Enter') { commitTyped(); input.blur(); }
-    else if (e.key === 'Escape') { input.classList.remove('bad'); input.blur(); }
+    // Enter and Tab commit through blur, so a typed value applies exactly once.
+    if (e.key === 'Enter') input.blur();
+    else if (e.key === 'Escape') { input.value = shown; input.classList.remove('bad'); input.blur(); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const v = clamp((opts.get() ?? 0) + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1));
       opts.apply(v, 'commit');
       input.value = fmt(v);
+      shown = input.value;
     }
   });
-  input.addEventListener('blur', () => { if (!input.classList.contains('bad')) api.update(); });
-  input.addEventListener('change', commitTyped);
+  input.addEventListener('blur', () => {
+    if (input.value !== shown) commitTyped();
+    else if (!input.classList.contains('bad')) api.update();
+  });
   el.addEventListener('wheel', (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     const v = clamp((opts.get() ?? 0) + (e.deltaY < 0 ? 1 : -1) * step * (e.shiftKey ? 0.1 : 1));
     opts.apply(v, 'commit');
     input.value = fmt(v);
+    shown = input.value;
   }, { passive: false });
   api.update();
   return api;

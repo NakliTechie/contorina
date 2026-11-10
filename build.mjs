@@ -20,6 +20,7 @@ writeFileSync('index.html', html);
 // registry so the manifest cannot drift from the code.
 globalThis.navigator ??= { platform: 'build' };
 await import('./src/commands.js');
+await import('./src/commands-vector.js');
 const { all, inputSchema } = await import('./src/registry.js');
 const commands = all().map((c) => ({ name: c.id, description: c.description || c.label, scope: c.scope, input: inputSchema(c) }));
 const manifest = {

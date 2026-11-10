@@ -14,3 +14,8 @@ Backspace to reset) follow the behaviour of Blender's number fields as described
 ppmpreetham/BUI. No code from Blender or BUI (both GPL) is used.
 
 Figger is a clean-room design tool. It uses no Figma assets, icons or proprietary format code.
+
+Bundled into index.html by the build (pinned in package-lock.json):
+- polygon-clipping 0.15.7, MIT, https://github.com/mfogel/polygon-clipping (boolean operations)
+- splaytree 3.2.3, MIT, https://github.com/w8r/splay-tree (dependency of polygon-clipping)
+- robust-predicates 3.0.3, Unlicense, https://github.com/mourner/robust-predicates (dependency of polygon-clipping)

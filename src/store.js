@@ -34,7 +34,9 @@ export function notify(...what) {
     pending = new Set();
     for (const fn of listeners) fn(p);
   };
-  if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(flush);
+  // Hidden pages (a background tab, a minimized NakliOS window) get no animation frames; use a timer.
+  if (typeof requestAnimationFrame !== 'undefined' && !(typeof document !== 'undefined' && document.hidden)) requestAnimationFrame(flush);
+  else if (typeof document !== 'undefined') setTimeout(flush, 16);
   else queueMicrotask(flush);
 }
 

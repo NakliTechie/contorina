@@ -1,6 +1,9 @@
 // Figger boot: the command runner, app-level commands, keys, toolbar, storage and the two agent doors
 // (window.figger in the page, the NakliOS common rail when hosted). Both doors call the same registry.
 import './commands.js';
+import './commands-vector.js';
+import { createVectorTools } from './pen.js';
+import { setImageReadyHandler } from './paint.js';
 import { register, run, setRunner, manifest, comboOf, findByKey, checkParams, get, all, keyLabel, isMac } from './registry.js';
 import { state, commit, preview, setSelection, undo, redo, replaceDoc, notify, subscribe, canUndo, canRedo } from './store.js';
 import { Tx, validateDoc, topmost, emptyDoc, descendants, hasLayout } from './doc.js';
@@ -157,9 +160,12 @@ register(
   { id: 'view.zoom100', label: 'Zoom to 100%', group: 'View', keys: ['Shift+0'], run: () => app.canvas.zoomAt(app.canvas.center(), 1) },
   { id: 'view.fit', label: 'Zoom to fit', group: 'View', keys: ['Shift+1'], run: () => app.canvas.fitBox(unionBoxes(state.doc.children.filter((id) => state.doc.nodes[id].visible !== false).map((id) => worldBox(state.doc, id))), 1) },
   { id: 'view.fitSelection', label: 'Zoom to selection', group: 'View', keys: ['Shift+2'], run: () => { if (state.selection.length) app.canvas.fitBox(unionBoxes(state.selection.map((id) => worldBox(state.doc, id))), 8); } },
-  ...[['select', 'Move and select', 'V'], ['frame', 'Frame', 'F'], ['rect', 'Rectangle', 'R'], ['ellipse', 'Ellipse', 'O'], ['line', 'Line', 'L'], ['text', 'Text', 'T'], ['hand', 'Hand (pan)', 'H']].map(([t, label, k]) => ({
-    id: 'tool.' + t, label: `Tool: ${label}`, group: 'Tools', keys: [k], noRail: true, run: () => { state.tool = t; notify('tool'); },
+  ...[['select', 'Move and select', 'V'], ['frame', 'Frame', 'F'], ['rect', 'Rectangle', 'R'], ['ellipse', 'Ellipse', 'O'], ['line', 'Line', 'L'],
+    ['polygon', 'Polygon', 'Shift+P'], ['star', 'Star', 'Shift+S'], ['pen', 'Pen', 'P'], ['pencil', 'Pencil', 'Shift+L'], ['text', 'Text', 'T'], ['hand', 'Hand (pan)', 'H']].map(([t, label, k]) => ({
+    id: 'tool.' + t, label: `Tool: ${label}`, group: 'Tools', keys: [k], noRail: true, run: () => { app.vectorTools?.exit(); state.tool = t; notify('tool'); },
   })),
+  { id: 'file.placeImage', label: 'Place image…', group: 'Insert', keys: ['Shift+Mod+K'], personOnly: true, run: () => pickImage() },
+  { id: 'vector.editPath', label: 'Edit path', group: 'Edit', noRail: true, run: () => { const id = state.selection[0]; if (id) app.vectorTools.editPath(id); } },
   { id: 'palette.open', label: 'Search commands', group: 'Help', keys: ['Mod+K', 'Mod+/'], noRail: true, run: () => openPalette(app) },
   { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'Help', keys: ['Shift+/'], noRail: true, run: () => showShortcuts() },
   { id: 'component.goToMain', label: 'Go to main component', group: 'Components', run: () => {
@@ -175,7 +181,8 @@ register(
     params: { doc: { type: 'object', required: true } },
     doc(tx, p) {
       const d = validateDoc(structuredClone(p.doc));
-      tx.doc.name = d.name; tx.doc.children = d.children.slice(); tx.doc.nodes = { ...d.nodes }; tx.doc.styles = { ...d.styles };
+      tx.doc.name = d.name; tx.doc.children = d.children.slice(); tx.doc.nodes = { ...d.nodes }; tx.doc.styles = { ...d.styles }; tx.doc.assets = { ...d.assets };
+      for (const k of ['pages', 'page', 'variables']) { if (d[k] === undefined) delete tx.doc[k]; else tx.doc[k] = structuredClone(d[k]); }
       tx.own = new Set();
       return { select: [] };
     },
@@ -227,12 +234,43 @@ async function openFile() {
 }
 async function saveFile(as) {
   const text = JSON.stringify(state.doc);
-  const name = store.pickers ? await store.savePicked(state.doc.name, text, { as }) : await store.write(safeName(state.doc.name), text);
+  let name;
+  if (store.pickers) name = await store.savePicked(state.doc.name, text, { as });
+  else {
+    name = safeName(state.doc.name);
+    // Another document already has this name: ask before replacing it.
+    if (name !== state.savedName && (await store.list()).includes(name)
+      && !(await confirmDialog(`Replace “${name}”?`, `A document with this name is already saved in ${store.label()}.`, 'Replace', true))) return;
+    await store.write(name, text);
+  }
   state.savedName = name;
   state.dirty = false;
   notify('file');
   toast(`Saved ${name}`);
 }
+
+async function readImage(file) {
+  if (!/^image\//.test(file.type)) throw new Error(`${file.name} is not an image`);
+  const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+  const dims = await createImageBitmap(file).then((b) => { const d = { w: b.width, h: b.height }; b.close(); return d; }).catch(() => ({ w: 200, h: 200 }));
+  return { mime: file.type, data, name: file.name.replace(/\.[^.]+$/, ''), ...dims };
+}
+async function placeImageFile(file, at) {
+  const img = await readImage(file);
+  const asset = run('asset.add', img);
+  const c = at || app.viewCenter();
+  const w = Math.min(img.w, 1200), h = (img.h * w) / img.w;
+  run('image.place', { asset, x: Math.round(c.x - w / 2), y: Math.round(c.y - h / 2), w, h });
+}
+function pickImage() {
+  return new Promise((resolve) => {
+    const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml' });
+    input.onchange = async () => { if (input.files[0]) await placeImageFile(input.files[0]).catch(report); resolve(); };
+    input.click();
+  });
+}
+app.placeImageFile = placeImageFile;
+app.readImage = readImage;
 
 function showShortcuts() {
   const rows = all().filter((c) => c.keys.length && !c.hidden).map((c) => h('tr', h('td', c.label), h('td', c.keys.map((k) => h('kbd', keyLabel(k))))));
@@ -249,6 +287,10 @@ window.addEventListener('keydown', (e) => {
   if (document.querySelector('dialog[open], .palette')) return;
   if (isTyping(e.target)) return;
   if (fieldKey(e)) return;
+  if (app.vectorTools && app.vectorTools.active) {
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); app.vectorTools.exit(); return; }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && app.vectorTools.deleteSelected()) { e.preventDefault(); return; }
+  }
   if (e.code === 'Space') { if (!state.space) { state.space = true; app.canvas.el.style.cursor = 'grab'; } e.preventDefault(); return; }
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
   if (arrows[e.key] && !e.metaKey && !e.ctrlKey && state.selection.length) {
@@ -268,7 +310,7 @@ window.addEventListener('blur', () => { state.space = false; });
 
 // ---- shell ----------------------------------------------------------------------------------------
 function buildToolbar(bar) {
-  const tools = [['select', '↖', 'V'], ['frame', '#', 'F'], ['rect', '▢', 'R'], ['ellipse', '○', 'O'], ['line', '╱', 'L'], ['text', 'T', 'T'], ['hand', '✋', 'H']];
+  const tools = [['select', '↖', 'V'], ['frame', '#', 'F'], ['rect', '▢', 'R'], ['ellipse', '○', 'O'], ['line', '╱', 'L'], ['polygon', '△', '⇧P'], ['star', '☆', '⇧S'], ['pen', '✒', 'P'], ['pencil', '✎', '⇧L'], ['text', 'T', 'T'], ['hand', '✋', 'H']];
   const toolBtns = tools.map(([t, icon, k]) => h('button.tool', { type: 'button', title: `${get('tool.' + t).label.replace('Tool: ', '')} (${k})`, 'aria-label': get('tool.' + t).label, dataset: null, on: { click: () => run('tool.' + t) } }, icon));
   toolBtns.forEach((b, i) => { b.dataset.tool = tools[i][0]; });
   const menuBtn = h('button.menu-btn', { type: 'button', 'aria-haspopup': 'menu', title: 'Menu', on: { click: (e) => { e.stopPropagation(); toggleMenu(menuBtn); } } }, '☰');
@@ -370,6 +412,8 @@ async function boot() {
   const status = h('footer.status');
   clear(root).append(bar, h('div.main', layers, wrap, props), status);
   app.canvas = createCanvas(wrap, app);
+  app.vectorTools = createVectorTools(app.canvas, app);
+  setImageReadyHandler(() => app.canvas.requestRender());
   app.focusCanvas = () => wrap.focus({ preventScroll: true });
   app.viewCenter = () => app.canvas.toWorld(app.canvas.center().x, app.canvas.center().y);
   buildToolbar(bar);
@@ -392,6 +436,11 @@ async function boot() {
     const f = e.dataTransfer?.files?.[0];
     if (!f) return;
     e.preventDefault();
+    if (/^image\//.test(f.type)) {
+      const r = app.canvas.el.getBoundingClientRect();
+      try { await placeImageFile(f, app.canvas.toWorld(e.clientX - r.left, e.clientY - r.top)); } catch (err) { report(err); }
+      return;
+    }
     try { await loadText(await f.text(), f.name); } catch (err) { toast(`Could not open ${f.name}: ${err.message}`, 'error'); }
   });
 }

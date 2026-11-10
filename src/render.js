@@ -3,18 +3,53 @@
 import { localMatrix, mul, apply, boxOfPoints, corners, intersects, IDENT } from './geom.js';
 import { fillOf, strokeOf, textOf } from './styles.js';
 import { textLayout } from './text.js';
+import { fillPaints, paints, firstColor } from './paint.js';
+import { shapeD } from './vector.js';
 
-function shapePath(ctx, n) {
-  ctx.beginPath();
-  if (n.type === 'ellipse') ctx.ellipse(n.w / 2, n.h / 2, Math.max(0, n.w / 2), Math.max(0, n.h / 2), 0, 0, Math.PI * 2);
-  else if (n.type === 'line') { ctx.moveTo(0, 0); ctx.lineTo(n.w, 0); }
-  else if (n.radius > 0 && ctx.roundRect) ctx.roundRect(0, 0, n.w, n.h, Math.min(n.radius, n.w / 2, n.h / 2));
-  else ctx.rect(0, 0, n.w, n.h);
+const pathCache = new Map();
+function cachedPath(d) {
+  let p = pathCache.get(d);
+  if (!p) { p = new Path2D(d); if (pathCache.size > 4000) pathCache.clear(); pathCache.set(d, p); }
+  return p;
+}
+
+export function radii(n) {
+  const r = n.radius;
+  if (Array.isArray(r)) return r.map((v) => Math.max(0, Math.min(v || 0, n.w / 2, n.h / 2)));
+  return r > 0 ? Math.min(r, n.w / 2, n.h / 2) : 0;
+}
+
+// The layer's outline in local space as a Path2D.
+export function pathOf(n) {
+  const p = new Path2D();
+  switch (n.type) {
+    case 'ellipse': p.ellipse(n.w / 2, n.h / 2, Math.max(0, n.w / 2), Math.max(0, n.h / 2), 0, 0, Math.PI * 2); return p;
+    case 'line': p.moveTo(0, 0); p.lineTo(n.w, 0); return p;
+    case 'vector': case 'polygon': case 'star': {
+      const d = shapeD(n);
+      const vw = n.type === 'vector' ? n.vw || n.w || 1 : 1, vh = n.type === 'vector' ? n.vh || n.h || 1 : 1;
+      const sx = n.type === 'vector' ? n.w / vw : n.w, sy = n.type === 'vector' ? n.h / vh : n.h;
+      p.addPath(cachedPath(d), new DOMMatrix([sx || 1e-6, 0, 0, sy || 1e-6, 0, 0]));
+      return p;
+    }
+    default: {
+      const r = radii(n);
+      if ((Array.isArray(r) ? r.some((v) => v > 0) : r > 0) && p.roundRect) p.roundRect(0, 0, n.w, n.h, r);
+      else p.rect(0, 0, n.w, n.h);
+      return p;
+    }
+  }
 }
 
 // opts: { cull: world box or null, skip: Set of ids not to draw (text being edited) }
 export function drawNodes(ctx, doc, ids, opts = {}, parentM = IDENT, alpha = 1) {
   for (const id of ids) drawNode(ctx, doc, id, opts, parentM, alpha);
+}
+
+function effectPad(n) {
+  let pad = (n.strokeWidth || 0) + 2;
+  for (const e of n.effects || []) if (e.visible !== false) pad += Math.abs(e.x || 0) + Math.abs(e.y || 0) + (e.blur || e.radius || 0) * 2 + (e.spread || 0);
+  return pad;
 }
 
 function drawNode(ctx, doc, id, opts, parentM, alpha) {
@@ -24,54 +59,189 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
   const m = mul(parentM, lm);
   if (opts.cull) {
     const b = boxOfPoints(corners(n).map((p) => apply(m, p)));
-    const pad = (n.strokeWidth || 0) + 2;
+    const pad = effectPad(n);
     if (!intersects({ x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad }, opts.cull)) return;
   }
   const a = alpha * (n.opacity ?? 1);
+  const effects = (n.effects || []).filter((e) => e.visible !== false);
   ctx.save();
   ctx.transform(lm[0], lm[1], lm[2], lm[3], lm[4], lm[5]);
   ctx.globalAlpha = a;
+  if (n.blendMode && n.blendMode !== 'normal' && n.blendMode !== 'pass') ctx.globalCompositeOperation = n.blendMode;
+  const blur = effects.find((e) => e.type === 'blur');
+  if (blur && blur.radius > 0) ctx.filter = `blur(${blur.radius}px)`;
   const styles = doc.styles;
   const fill = fillOf(n, styles);
   const stroke = strokeOf(n, styles);
+
   if (n.type === 'text') {
-    if (!(opts.skip && opts.skip.has(id))) {
-      const t = textOf(n, styles);
-      const L = textLayout(n, styles);
-      ctx.font = L.font;
-      ctx.fillStyle = fill || '#000';
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = t.align === 'center' ? 'center' : t.align === 'right' ? 'right' : 'left';
-      const x = t.align === 'center' ? n.w / 2 : t.align === 'right' ? n.w : 0;
-      L.lines.forEach((line, i) => ctx.fillText(line, x, i * L.lh + L.lh / 2));
+    if (!(opts.skip && opts.skip.has(id))) drawText(ctx, n, styles, fill, effects, doc);
+    ctx.restore();
+    return;
+  }
+  const path = pathOf(n);
+  const rule = n.fillRule === 'evenodd' ? 'evenodd' : 'nonzero';
+
+  // Background blur: blur what is already drawn under the shape.
+  const bg = effects.find((e) => e.type === 'bgblur');
+  if (bg && bg.radius > 0 && ctx.canvas) {
+    ctx.save();
+    ctx.clip(path, rule);
+    ctx.filter = `blur(${bg.radius}px)`;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    const t = ctx.getTransform();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(ctx.canvas, 0, 0);
+    ctx.setTransform(t);
+    ctx.restore();
+  }
+
+  // Drop shadows: cast by the fill shape (or the stroke for a line).
+  for (const e of effects.filter((x) => x.type === 'drop')) {
+    ctx.save();
+    const s = scaleOf(ctx);
+    ctx.shadowColor = e.color || 'rgba(0,0,0,0.25)';
+    ctx.shadowOffsetX = (e.x || 0) * s; ctx.shadowOffsetY = (e.y || 0) * s; ctx.shadowBlur = (e.blur || 0) * s;
+    ctx.fillStyle = '#000';
+    if (n.type === 'line') { ctx.strokeStyle = '#000'; ctx.lineWidth = n.strokeWidth || 1; ctx.stroke(path); }
+    else {
+      // Draw the shadow only: move the shape far away in local space and offset its shadow back by the
+      // same distance in device pixels (shadow offsets ignore the transform, so rotation is handled).
+      const far = 100000;
+      const t = ctx.getTransform();
+      ctx.shadowOffsetX -= t.a * far;
+      ctx.shadowOffsetY -= t.b * far;
+      ctx.translate(far, 0);
+      if (e.spread) { ctx.lineWidth = e.spread * 2; ctx.strokeStyle = '#000'; ctx.stroke(path); }
+      ctx.fill(path, rule);
     }
-  } else {
-    shapePath(ctx, n);
-    if (fill && n.type !== 'line') { ctx.fillStyle = fill; ctx.fill(); }
-    if (n.children && n.children.length) {
-      ctx.save();
-      if (n.clip !== false) { shapePath(ctx, n); ctx.clip(); }
-      drawNodes(ctx, doc, n.children, opts, m, a);
-      ctx.restore();
-    }
-    if (stroke && n.strokeWidth > 0) {
-      shapePath(ctx, n);
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = n.strokeWidth;
-      ctx.lineCap = 'round';
-      if (n.dashed) ctx.setLineDash([6, 4]);
-      ctx.stroke();
-    }
+    ctx.restore();
+  }
+
+  if (n.type !== 'line' && paints(fill).length) fillWith(ctx, fill, n, doc, path, rule);
+
+  for (const e of effects.filter((x) => x.type === 'inner')) {
+    ctx.save();
+    ctx.clip(path, rule);
+    const s = scaleOf(ctx);
+    ctx.shadowColor = e.color || 'rgba(0,0,0,0.25)';
+    ctx.shadowOffsetX = (e.x || 0) * s; ctx.shadowOffsetY = (e.y || 0) * s; ctx.shadowBlur = (e.blur || 0) * s;
+    const ring = new Path2D();
+    ring.rect(-n.w * 4 - 1000, -n.h * 4 - 1000, n.w * 9 + 2000, n.h * 9 + 2000);
+    ring.addPath(path);
+    ctx.fillStyle = '#000';
+    ctx.fill(ring, 'evenodd');
+    ctx.restore();
+  }
+
+  if (n.children && n.children.length) {
+    ctx.save();
+    if (n.clip !== false) ctx.clip(path, rule);
+    ctx.filter = 'none';
+    drawNodes(ctx, doc, n.children, opts, m, a);
+    ctx.restore();
+  }
+  if (stroke && n.strokeWidth > 0) strokeWith(ctx, n, stroke, path, doc);
+  ctx.restore();
+}
+
+function fillWith(ctx, fill, n, doc, path, rule) {
+  for (const p of paints(fill)) {
+    ctx.save();
+    if (p.opacity != null) ctx.globalAlpha *= p.opacity;
+    if (p.blend && p.blend !== 'normal') ctx.globalCompositeOperation = p.blend;
+    if (p.type === 'solid') { ctx.fillStyle = p.color; ctx.fill(path, rule); }
+    else { ctx.clip(path, rule); fillPaints(ctx, { ...p, opacity: undefined, blend: undefined }, n.w, n.h, doc, () => { ctx.beginPath(); ctx.rect(-1, -1, n.w + 2, n.h + 2); }); }
+    ctx.restore();
+  }
+}
+
+function strokeWith(ctx, n, stroke, path, doc) {
+  const align = n.type === 'line' ? 'center' : n.strokeAlign || 'center';
+  const w = n.strokeWidth;
+  ctx.save();
+  ctx.lineCap = n.strokeCap || (n.type === 'line' ? 'round' : 'butt');
+  ctx.lineJoin = n.strokeJoin || 'miter';
+  if (n.dash && n.dash.length) ctx.setLineDash(n.dash);
+  else if (n.dashed) ctx.setLineDash([6, 4]);
+  ctx.lineWidth = align === 'center' ? w : w * 2;
+  if (align === 'inside') ctx.clip(path);
+  if (align === 'outside') {
+    const ring = new Path2D();
+    ring.rect(-w * 4 - n.w * 2, -w * 4 - n.h * 2, n.w * 5 + w * 8, n.h * 5 + w * 8);
+    ring.addPath(path);
+    ctx.clip(ring, 'evenodd');
+  }
+  const ps = paints(stroke);
+  for (const p of ps) {
+    ctx.save();
+    if (p.opacity != null) ctx.globalAlpha *= p.opacity;
+    if (p.type === 'solid') ctx.strokeStyle = p.color;
+    else ctx.strokeStyle = firstColor(p) || '#000';
+    ctx.stroke(path);
+    ctx.restore();
   }
   ctx.restore();
+}
+
+function drawText(ctx, n, styles, fill, effects, doc) {
+  const t = textOf(n, styles);
+  const L = textLayout(n, styles);
+  ctx.font = L.font;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = t.align === 'center' ? 'center' : t.align === 'right' ? 'right' : 'left';
+  const x = t.align === 'center' ? n.w / 2 : t.align === 'right' ? n.w : 0;
+  if (t.letterSpacing && 'letterSpacing' in ctx) ctx.letterSpacing = t.letterSpacing + 'px';
+  const drop = effects.find((e) => e.type === 'drop');
+  if (drop) {
+    const s = scaleOf(ctx);
+    ctx.shadowColor = drop.color || 'rgba(0,0,0,0.25)';
+    ctx.shadowOffsetX = (drop.x || 0) * s; ctx.shadowOffsetY = (drop.y || 0) * s; ctx.shadowBlur = (drop.blur || 0) * s;
+  }
+  const ps = paints(fill);
+  const solid = ps.length === 1 && ps[0].type === 'solid';
+  if (solid || !ps.length) {
+    ctx.fillStyle = (ps[0] && ps[0].color) || '#000';
+    L.lines.forEach((line, i) => ctx.fillText(line, x, i * L.lh + L.lh / 2));
+    if (t.decoration) decorate(ctx, t, L, x);
+    return;
+  }
+  // Gradient or image text: draw the glyphs as a mask, then paint through it.
+  ctx.save();
+  ctx.fillStyle = '#000';
+  L.lines.forEach((line, i) => ctx.fillText(line, x, i * L.lh + L.lh / 2));
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.shadowColor = 'transparent';
+  fillPaints(ctx, fill, n.w, n.h, doc, () => { ctx.beginPath(); ctx.rect(0, 0, n.w, n.h); });
+  ctx.restore();
+}
+
+function decorate(ctx, t, L, x) {
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.lineWidth = Math.max(1, t.fontSize / 14);
+  L.lines.forEach((line, i) => {
+    const w = ctx.measureText(line).width;
+    const x0 = t.align === 'center' ? x - w / 2 : t.align === 'right' ? x - w : x;
+    const y = i * L.lh + L.lh / 2 + (t.decoration === 'underline' ? t.fontSize * 0.45 : 0);
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + w, y); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function scaleOf(ctx) {
+  const t = ctx.getTransform();
+  return Math.hypot(t.a, t.b) || 1;
 }
 
 // The canvas view: clear, set the view transform, draw.
 export function drawView(ctx, doc, view, size, dpr, opts = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = opts.background || '#F5F5F5';
   ctx.fillRect(0, 0, size.w * dpr, size.h * dpr);
   ctx.setTransform(dpr * view.zoom, 0, 0, dpr * view.zoom, dpr * view.x, dpr * view.y);
   const cull = { x: -view.x / view.zoom, y: -view.y / view.zoom, w: size.w / view.zoom, h: size.h / view.zoom };
-  drawNodes(ctx, doc, doc.children, { ...opts, cull });
+  drawNodes(ctx, doc, opts.roots || doc.children, { ...opts, cull });
 }

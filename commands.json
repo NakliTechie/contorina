@@ -23,7 +23,10 @@
               "rect",
               "ellipse",
               "line",
-              "text"
+              "text",
+              "vector",
+              "polygon",
+              "star"
             ]
           },
           "parent": {
@@ -740,6 +743,193 @@
           "kind",
           "styleId"
         ]
+      }
+    },
+    {
+      "name": "asset.add",
+      "description": "Store an image (base64 data, MIME type) in the document and return its asset id.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "w": {
+            "type": "number"
+          },
+          "h": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mime",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "image.place",
+      "description": "Place a stored image asset as a rectangle with an image fill at (x, y), at its natural size unless w and h are given.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "w": {
+            "type": "number"
+          },
+          "h": {
+            "type": "number"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset"
+        ]
+      }
+    },
+    {
+      "name": "vector.create",
+      "description": "Create a vector layer from SVG path data given in the parent frame's coordinates (or canvas coordinates with no parent).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "d": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "props": {
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "d"
+        ]
+      }
+    },
+    {
+      "name": "vector.setPath",
+      "description": "Replace a vector layer's path; d is in the layer's own units (0..w, 0..h before the edit). The layer box refits to the new path.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "d": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "d"
+        ]
+      }
+    },
+    {
+      "name": "node.flatten",
+      "description": "Turn shapes into editable vector paths (rotation is baked into the path).",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          }
+        }
+      }
+    },
+    {
+      "name": "boolean.apply",
+      "description": "Combine shapes into one vector: union, subtract (from the bottom-most), intersect or exclude.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "union",
+              "subtract",
+              "intersect",
+              "exclude"
+            ]
+          }
+        },
+        "required": [
+          "op"
+        ]
+      }
+    },
+    {
+      "name": "boolean.union",
+      "description": "Boolean: Union",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "boolean.subtract",
+      "description": "Boolean: Subtract",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "boolean.intersect",
+      "description": "Boolean: Intersect",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "boolean.exclude",
+      "description": "Boolean: Exclude",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {}
       }
     }
   ],

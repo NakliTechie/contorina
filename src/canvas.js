@@ -51,6 +51,8 @@ export function createCanvas(wrap, app) {
     app.lastFrameMs = performance.now() - t0;
   }
   subscribe(() => { requestRender(); positionEditor(); });
+  // Measure now (a hidden page gets no frames or resize callbacks) and again on the first frame.
+  resize();
   requestAnimationFrame(() => { dirty = false; resize(); });
 
   // ---- overlay -------------------------------------------------------------------------------
@@ -145,6 +147,7 @@ export function createCanvas(wrap, app) {
         label(String(l.len), (a.x + b.x) / 2, (a.y + b.y) / 2, '#F24822');
       }
     }
+    if (app.vectorTools) app.vectorTools.overlay(ctx, toScreen);
     if (state.marquee) {
       const m = state.marquee;
       const a = toScreen(m), b = toScreen({ x: m.x + m.w, y: m.y + m.h });
@@ -173,7 +176,7 @@ export function createCanvas(wrap, app) {
 
   function cursorFor(s, e) {
     if (state.space || state.tool === 'hand') return drag?.kind === 'pan' ? 'grabbing' : 'grab';
-    if (state.tool !== 'select') return state.tool === 'text' ? 'text' : 'crosshair';
+    if (state.tool !== 'select') return state.tool === 'text' ? 'text' : state.tool === 'pen' || state.tool === 'pencil' ? 'crosshair' : 'crosshair';
     const h = handleAt(s);
     if (h && h.kind === 'rotate') return 'alias';
     if (h) {
@@ -189,12 +192,13 @@ export function createCanvas(wrap, app) {
     if (state.editing) app.endTextEdit(true);
     // Stop the mouse-down default from moving focus after we place it (it would blur a new text editor).
     e.preventDefault();
-    canvas.setPointerCapture(e.pointerId);
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic or already-released pointer */ }
     wrap.focus({ preventScroll: true });
     const s = local(e), w = toWorld(s.x, s.y);
     last = s;
     if (e.button === 1 || state.space || state.tool === 'hand') { drag = { kind: 'pan', s, view: { ...state.view } }; canvas.style.cursor = 'grabbing'; return; }
     if (e.button !== 0) return;
+    if (app.vectorTools && app.vectorTools.down(e, s, w)) { drag = { kind: 'vector' }; return; }
     if (state.tool !== 'select') { startCreate(w, e); return; }
     const h = handleAt(s);
     if (h) { startHandle(h, w, e); return; }
@@ -220,11 +224,14 @@ export function createCanvas(wrap, app) {
     const id = 'n' + Math.random().toString(36).slice(2, 10);
     drag = { kind: 'create', type, start: w, parent, id, g: app.gesture(), moved: false };
     if (type === 'text') {
+      // The new text layer is a preview until its first edit commits: creating and typing is one undo step.
       drag = null;
       const p = parentLocal(parent, w);
-      app.run('node.create', { type: 'text', parent, x: round2(p.x), y: round2(p.y - 10), id, props: { text: '' } });
+      const g = app.gesture();
+      const params = { type: 'text', parent, x: round2(p.x), y: round2(p.y - 10), id, props: { text: '' } };
+      g.preview('node.create', params);
       app.run('tool.select');
-      app.startTextEdit(id, true);
+      app.startTextEdit(id, { create: params, g });
     }
   }
   function parentLocal(pid, w) { return pid ? apply(inv(worldMatrix(state.doc, pid)), w) : w; }
@@ -245,6 +252,7 @@ export function createCanvas(wrap, app) {
     const s = local(e), w = toWorld(s.x, s.y);
     last = s;
     app.pointerWorld = w;
+    if (app.vectorTools && app.vectorTools.move(e, s, w, !!drag)) return;
     if (!drag) { hover(s, w, e); canvas.style.cursor = cursorFor(s, e); return; }
     switch (drag.kind) {
       case 'pan':
@@ -377,6 +385,7 @@ export function createCanvas(wrap, app) {
   canvas.addEventListener('pointerup', (e) => {
     const d = drag;
     drag = null;
+    if (d && d.kind === 'vector') { app.vectorTools.up(e, local(e), toWorld(local(e).x, local(e).y)); return; }
     state.guides = [];
     canvas.style.cursor = 'default';
     if (!d) return;
@@ -409,11 +418,13 @@ export function createCanvas(wrap, app) {
 
   canvas.addEventListener('dblclick', (e) => {
     const s = local(e), w = toWorld(s.x, s.y);
+    if (app.vectorTools && app.vectorTools.dblclick(e, s, w)) return;
     const chain = hitChain(state.doc, w, tol());
     const target = pick(state.doc, chain, state.selection, { drill: true });
     if (!target) return;
     const n = state.doc.nodes[target];
     if (n.type === 'text' && state.selection.includes(target)) { app.startTextEdit(target); return; }
+    if ((n.type === 'vector' || n.type === 'polygon' || n.type === 'star') && state.selection.includes(target) && app.vectorTools) { app.vectorTools.editPath(target); return; }
     app.run('select.set', { ids: [target] });
     if (n.type === 'text') app.startTextEdit(target);
   });
@@ -473,11 +484,11 @@ export function createCanvas(wrap, app) {
     if (n.autoSize !== 'width') editor.style.width = n.w + 'px';
     editor.hidden = false;
   }
-  app.startTextEdit = (id, fresh = false) => {
+  app.startTextEdit = (id, fresh = null) => {
     const n = state.doc.nodes[id];
     if (!n || n.type !== 'text') return;
     state.editing = id;
-    editBase = { id, text: n.text, fresh };
+    editBase = { id, text: n.text, fresh, g: fresh ? fresh.g : null };
     editor.value = n.text;
     positionEditor();
     editor.focus();
@@ -489,7 +500,8 @@ export function createCanvas(wrap, app) {
     // Live size update without history: the commit below records one undo step.
     const id = state.editing;
     const g = editBase.g || (editBase.g = app.gesture());
-    g.preview('text.set', { id, text: editor.value || ' ' });
+    if (editBase.fresh) g.preview('node.create', { ...editBase.fresh.create, props: { text: editor.value || ' ' } });
+    else g.preview('text.set', { id, text: editor.value || ' ' });
   });
   app.endTextEdit = (commit = true) => {
     const id = state.editing;
@@ -498,7 +510,10 @@ export function createCanvas(wrap, app) {
     editor.hidden = true;
     const g = editBase.g || app.gesture();
     const text = editor.value;
-    if (commit && (text !== editBase.text || editBase.fresh)) g.commit('text.set', { id, text });
+    if (editBase.fresh) {
+      if (commit && text.trim()) g.commit('node.create', { ...editBase.fresh.create, props: { text } });
+      else g.cancel();
+    } else if (commit && text !== editBase.text) g.commit('text.set', { id, text });
     else g.cancel();
     if (commit && !text.trim()) app.run('select.set', { ids: [] });
     editBase = null;
@@ -512,7 +527,7 @@ export function createCanvas(wrap, app) {
   editor.addEventListener('blur', () => { if (state.editing) app.endTextEdit(true); });
 
   return {
-    requestRender, zoomAt, fitBox, toWorld, toScreen,
+    requestRender, zoomAt, fitBox, toWorld, toScreen, local,
     center: () => ({ x: size.w / 2, y: size.h / 2 }),
     viewportWorld: () => ({ ...toWorld(0, 0), w: size.w / state.view.zoom, h: size.h / state.view.zoom }),
     lastPointer: () => last,

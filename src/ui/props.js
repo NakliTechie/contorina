@@ -7,6 +7,8 @@ import { hasLayout } from '../doc.js';
 import { fillOf, strokeOf, textOf, FONT_STACKS } from '../styles.js';
 import { variantSetOf, variantProps } from '../components.js';
 import { DEFAULT_LAYOUT } from '../layout.js';
+import { paintList, effectsEditor } from './paint-editor.js';
+import { BLEND_MODES } from '../paint.js';
 
 const WEIGHTS = [[100, 'Thin'], [300, 'Light'], [400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [900, 'Black']];
 
@@ -73,7 +75,7 @@ export function createProps(root, app) {
     if (!ns.length) return 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
     return ns.map((n) => {
       const p = n.parent && state.doc.nodes[n.parent];
-      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked].join('|');
+      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase].join('|');
     }).join(';') + Object.keys(state.doc.styles).join();
   }
 
@@ -165,12 +167,64 @@ export function createProps(root, app) {
 
     // Appearance.
     const rounded = ns.every((n) => ['rect', 'frame', 'instance'].includes(n.type));
+    const perCorner = rounded && ns.some((n) => Array.isArray(n.radius));
     const clipRow = ns.every((n) => n.type === 'frame' || n.type === 'instance') && !ns.some((n) => n.src)
       ? h('label.ps-check', h('input', { type: 'checkbox', checked: common((n) => n.clip !== false) !== false, on: { change: (e) => setProps({ clip: e.target.checked }) } }), 'Clip content') : null;
-    body.append(section('Appearance', grid(num('Op', 'opacity', { scale: 100, min: 0, max: 100, def: 100, unit: '%', decimals: 0, title: 'Opacity' }), rounded ? num('R', 'radius', { min: 0, title: 'Corner radius' }) : null), clipRow));
+    const cornerField = (i, label) => {
+      const f = numberField({ label, title: ['Top left', 'Top right', 'Bottom right', 'Bottom left'][i] + ' radius', min: 0, def: 0,
+        get: () => common((n) => (Array.isArray(n.radius) ? n.radius[i] : n.radius || 0)),
+        apply: (v, phase) => { const n0 = nodes()[0]; const r = Array.isArray(n0.radius) ? n0.radius.slice() : [0, 1, 2, 3].map(() => n0.radius || 0); r[i] = v; setProps({ radius: r }, phase); } });
+      fields.push(f);
+      return f.el;
+    };
+    const radiusUI = !rounded ? null : perCorner
+      ? h('div.ps-col', grid(cornerField(0, '↖'), cornerField(1, '↗'), cornerField(3, '↙'), cornerField(2, '↘')), h('div.ps-row', button('One radius', () => { const r = nodes()[0].radius; setProps({ radius: Array.isArray(r) ? Math.max(...r) : r }); })))
+      : h('div.ps-row', num('R', 'radius', { min: 0, title: 'Corner radius' }), button('⌜⌝', () => { const r = nodes()[0].radius || 0; setProps({ radius: [r, r, r, r] }); }, { title: 'Independent corners' }));
+    body.append(section('Appearance',
+      grid(num('Op', 'opacity', { scale: 100, min: 0, max: 100, def: 100, unit: '%', decimals: 0, title: 'Opacity' }),
+        select(common((n) => n.blendMode || 'normal'), [['normal', 'Normal'], ...BLEND_MODES.slice(1).map((b) => [b, b])], (v) => setProps({ blendMode: v === 'normal' ? undefined : v }), 'Layer blend mode')),
+      radiusUI, clipRow));
 
-    if (!ns.every((n) => n.type === 'line')) body.append(section(allType('text') ? 'Text colour' : 'Fill', colorRow('fill')));
-    if (!allType('text')) body.append(section('Stroke', colorRow('stroke')));
+    // Shape settings for polygons, stars and vectors.
+    if (allType('polygon')) body.append(section('Polygon', grid(num('Sides', 'sides', { min: 3, max: 60, def: 3, decimals: 0, title: 'Number of sides' }))));
+    if (allType('star')) body.append(section('Star', grid(num('Pts', 'points', { min: 3, max: 60, def: 5, decimals: 0, title: 'Number of points' }), num('In', 'inner', { scale: 100, min: 1, max: 100, def: 38, unit: '%', decimals: 0, title: 'Inner radius ratio' }))));
+    if (one && ['vector', 'polygon', 'star'].includes(one.type) && !one.src) {
+      body.append(section('Path', h('div.ps-row', button('Edit path', () => app.run('vector.editPath'), { title: 'Double-click the shape, or Enter' }),
+        one.type === 'vector' ? select(one.fillRule || 'nonzero', [['nonzero', 'Non-zero'], ['evenodd', 'Even-odd']], (v) => setProps({ fillRule: v }), 'Fill rule') : null)));
+    }
+    const shapes = ns.filter((n) => !n.src && n.type !== 'text' && !n.children);
+    if (ns.length >= 2 && !ns.some((n) => n.src)) {
+      body.append(section('Boolean', h('div.ps-row', ...['union', 'subtract', 'intersect', 'exclude'].map((op) => button(op[0].toUpperCase() + op.slice(1), () => app.run('boolean.apply', { op }), { title: `Boolean ${op}` })))));
+    }
+    if (shapes.length && shapes.length === ns.length && !ns.every((n) => n.type === 'vector' || n.type === 'line')) {
+      body.append(h('div.ps-row.pad', button('Flatten to vector', () => app.run('node.flatten'), { title: 'Mod+E' })));
+    }
+
+    // Fill and stroke paints (with shared styles).
+    const paintSection = (kind) => {
+      const styleKey = kind === 'fill' ? 'fillStyle' : 'strokeStyle';
+      const styleId = common((n) => n[styleKey] || '');
+      const colorStyles = Object.entries(doc.styles).filter(([, s]) => s.type === 'color');
+      const styleRow = h('div.ps-row', select(styleId, [['', '— no style —'], ...colorStyles.map(([id, s]) => [id, s.name])], (v) => app.run('node.applyStyle', { kind, styleId: v || null }), `${kind} style`),
+        button('❖', () => app.run('style.fromSelection', { kind }), { title: `Create a style from this ${kind}` }));
+      const sameValue = common((n) => JSON.stringify(n[kind] ?? null));
+      const editor = styleId ? h('div.ps-note', `Paint comes from the style “${doc.styles[styleId]?.name}”. Edit it with nothing selected.`)
+        : sameValue === null ? h('div.ps-note', 'Mixed') : paintList({ get: () => nodes()[0] && nodes()[0][kind], apply: (v, phase) => setProps({ [kind]: v }, phase), fields, app, kind });
+      return h('div.ps-col', styleRow, editor);
+    };
+    if (!ns.every((n) => n.type === 'line')) body.append(section(allType('text') ? 'Text paint' : 'Fill', paintSection('fill')));
+    if (!allType('text')) {
+      const hasStroke = ns.some((n) => strokeOf(n, doc.styles));
+      const opts = hasStroke ? h('div.ps-col',
+        grid(num('W', 'strokeWidth', { min: 0, step: 0.5, def: 1, title: 'Stroke width' }),
+          select(common((n) => n.strokeAlign || 'center'), [['center', 'Centre'], ['inside', 'Inside'], ['outside', 'Outside']], (v) => setProps({ strokeAlign: v === 'center' ? undefined : v }), 'Stroke position')),
+        grid(select(common((n) => n.strokeCap || 'butt'), [['butt', 'Butt cap'], ['round', 'Round cap'], ['square', 'Square cap']], (v) => setProps({ strokeCap: v }), 'Stroke cap'),
+          select(common((n) => n.strokeJoin || 'miter'), [['miter', 'Miter join'], ['round', 'Round join'], ['bevel', 'Bevel join']], (v) => setProps({ strokeJoin: v }), 'Stroke join')),
+        h('label.ps-field', h('span', 'Dashes'), h('input', { type: 'text', value: (common((n) => JSON.stringify(n.dash || [])) && (nodes()[0].dash || []).join(' ')) || '', placeholder: 'e.g. 6 4', 'aria-label': 'Dash pattern',
+          on: { keydown: (e) => e.stopPropagation(), change: (e) => { const d = e.target.value.trim().split(/[\s,]+/).map(Number).filter((x) => Number.isFinite(x) && x >= 0); setProps({ dash: d.length ? d : undefined, dashed: undefined }); } } }))) : null;
+      body.append(section('Stroke', paintSection('stroke'), opts));
+    }
+    body.append(section('Effects', effectsEditor({ get: () => nodes()[0] && nodes()[0].effects, apply: (v, phase) => setProps({ effects: v }, phase), fields })));
 
     if (allType('text')) {
       const t0 = textOf(ns[0], doc.styles);

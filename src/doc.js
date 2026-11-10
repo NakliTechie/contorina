@@ -10,7 +10,7 @@ export function uid() {
 }
 
 export function emptyDoc(name = 'Untitled') {
-  return { version: FORMAT_VERSION, name, children: [], nodes: {}, styles: {} };
+  return { version: FORMAT_VERSION, name, children: [], nodes: {}, styles: {}, assets: {} };
 }
 
 const BASE = {
@@ -24,13 +24,18 @@ const TYPE_DEFAULTS = {
   line: { fill: null, stroke: '#1E1E1E', strokeWidth: 2, h: 0 },
   text: { fill: '#1E1E1E', text: 'Text', fontSize: 16, fontFamily: 'Inter', fontWeight: 400, lineHeight: 1.25, align: 'left', autoSize: 'width' },
   instance: { fill: null, clip: true },
+  vector: { fill: '#D9D9D9', d: 'M0 0 L100 0 L100 100 Z', vw: 100, vh: 100, fillRule: 'nonzero' },
+  polygon: { sides: 3 },
+  star: { points: 5, inner: 0.38 },
 };
 export const TYPES = Object.keys(TYPE_DEFAULTS);
-const NAMES = { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', text: 'Text', instance: 'Instance' };
+const NAMES = { frame: 'Frame', rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', text: 'Text', instance: 'Instance', vector: 'Vector', polygon: 'Polygon', star: 'Star' };
 
 export function makeNode(type, props = {}) {
   if (!TYPE_DEFAULTS[type]) throw new Error(`Unknown node type "${type}"`);
-  const n = { id: uid(), type, ...BASE, ...TYPE_DEFAULTS[type], ...props };
+  const n = { ...BASE, ...TYPE_DEFAULTS[type], ...props, id: props.id || uid(), type };
+  delete n.src; delete n.root;
+  if (type !== 'frame' && type !== 'instance') delete n.children;
   if (!n.name) n.name = type === 'text' ? String(n.text).slice(0, 40) : NAMES[type];
   if (type === 'frame' || type === 'instance') n.children = n.children ? n.children.slice() : [];
   return n;
@@ -41,7 +46,7 @@ export const hasLayout = (n) => !!(n && n.layout && n.layout.mode && n.layout.mo
 
 export class Tx {
   constructor(doc) {
-    this.doc = { ...doc, nodes: { ...doc.nodes }, children: doc.children.slice(), styles: { ...doc.styles } };
+    this.doc = { ...doc, nodes: { ...doc.nodes }, children: doc.children.slice(), styles: { ...doc.styles }, assets: { ...(doc.assets || {}) } };
     this.own = new Set();
   }
   get(id) { return this.doc.nodes[id]; }
@@ -155,5 +160,5 @@ export function validateDoc(d) {
   if (!Array.isArray(d.children) || typeof d.nodes !== 'object') throw new Error('Document lacks children or nodes');
   if (d.version > FORMAT_VERSION) throw new Error(`Document format ${d.version} is newer than this Figger (${FORMAT_VERSION})`);
   for (const id of d.children) if (!d.nodes[id]) throw new Error(`Missing node ${id}`);
-  return { version: FORMAT_VERSION, name: d.name || 'Untitled', children: d.children, nodes: d.nodes, styles: d.styles || {} };
+  return { version: FORMAT_VERSION, name: d.name || 'Untitled', children: d.children, nodes: d.nodes, styles: d.styles || {}, assets: d.assets || {}, ...(d.pages ? { pages: d.pages, page: d.page } : {}), ...(d.variables ? { variables: d.variables } : {}) };
 }

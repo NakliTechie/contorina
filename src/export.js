@@ -1,76 +1,140 @@
 // SVG and PNG export. SVG is a pure string build (testable in Node); PNG uses the canvas renderer.
-import { localMatrix, worldBox, unionBoxes, worldMatrix, IDENT } from './geom.js';
+// Every value written into an attribute passes through esc() or num(), because document files are
+// untrusted input (a .figger.json can come from anywhere).
+import { localMatrix, worldBox, unionBoxes, worldMatrix, mul, IDENT } from './geom.js';
 import { fillOf, strokeOf, textOf, fontStack } from './styles.js';
 import { textLayout } from './text.js';
 import { drawNodes } from './render.js';
+import { svgPaints, paints, firstColor, preloadImages } from './paint.js';
+import { outlineD } from './vector.js';
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const num = (v) => Math.round(v * 1000) / 1000;
+const num = (v) => { const x = Number(v); return Number.isFinite(x) ? Math.round(x * 1000) / 1000 : 0; };
 const mat = (m) => `matrix(${m.map(num).join(' ')})`;
+const ALIGN = { left: 'start', center: 'middle', right: 'end' };
 
+// The area a layer paints: its box grown by drop shadows and blurs (its own and its children's).
+function paintedBox(doc, id) {
+  const boxes = [worldBox(doc, id)];
+  const walk = (nid) => {
+    const n = doc.nodes[nid];
+    if (!n || n.visible === false) return;
+    for (const e of n.effects || []) {
+      if (e.visible === false) continue;
+      const b = worldBox(doc, nid);
+      if (e.type === 'drop') { const g = (e.blur || 0) + (e.spread || 0); boxes.push({ x: b.x + (e.x || 0) - g, y: b.y + (e.y || 0) - g, w: b.w + 2 * g, h: b.h + 2 * g }); }
+      if (e.type === 'blur') { const g = (e.radius || 0) * 2; boxes.push({ x: b.x - g, y: b.y - g, w: b.w + 2 * g, h: b.h + 2 * g }); }
+    }
+    if (n.children && n.clip === false) n.children.forEach(walk);
+  };
+  walk(id);
+  return unionBoxes(boxes);
+}
 export function exportBounds(doc, ids) {
   const list = ids && ids.length ? ids : doc.children;
-  return unionBoxes(list.filter((id) => doc.nodes[id] && doc.nodes[id].visible !== false).map((id) => worldBox(doc, id)));
+  return unionBoxes(list.filter((id) => doc.nodes[id] && doc.nodes[id].visible !== false).map((id) => paintedBox(doc, id)));
 }
 
 export function toSVG(doc, ids) {
   const list = (ids && ids.length ? ids : doc.children).filter((id) => doc.nodes[id]);
   const b = exportBounds(doc, list) || { x: 0, y: 0, w: 1, h: 1 };
-  let clipN = 0;
+  let seq = 0;
+  const uid = () => `f${seq++}`;
   const defs = [];
+
   const shape = (n, attrs) => {
+    const r = n.radius;
+    const simpleRect = (n.type === 'rect' || n.type === 'frame' || n.type === 'instance') && !Array.isArray(r);
     if (n.type === 'ellipse') return `<ellipse cx="${num(n.w / 2)}" cy="${num(n.h / 2)}" rx="${num(n.w / 2)}" ry="${num(n.h / 2)}"${attrs}/>`;
     if (n.type === 'line') return `<line x1="0" y1="0" x2="${num(n.w)}" y2="0"${attrs}/>`;
-    const r = n.radius > 0 ? ` rx="${num(Math.min(n.radius, n.w / 2, n.h / 2))}"` : '';
-    return `<rect width="${num(n.w)}" height="${num(n.h)}"${r}${attrs}/>`;
+    if (simpleRect) {
+      const rr = r > 0 ? ` rx="${num(Math.min(r, n.w / 2, n.h / 2))}"` : '';
+      return `<rect width="${num(n.w)}" height="${num(n.h)}"${rr}${attrs}/>`;
+    }
+    const rule = n.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+    return `<path d="${esc(outlineD(n))}"${rule}${attrs}/>`;
   };
+
+  const filterFor = (n) => {
+    const fx = (n.effects || []).filter((e) => e.visible !== false && e.type !== 'bgblur');
+    if (!fx.length) return '';
+    const id = uid();
+    const parts = fx.map((e) => {
+      if (e.type === 'drop') return `<feDropShadow dx="${num(e.x)}" dy="${num(e.y)}" stdDeviation="${num((e.blur || 0) / 2)}" flood-color="${esc(e.color || 'rgba(0,0,0,0.25)')}"/>`;
+      if (e.type === 'blur') return `<feGaussianBlur stdDeviation="${num((e.radius || 0) / 2)}"/>`;
+      return ''; // inner shadows have no single SVG primitive; skipped
+    }).join('');
+    if (!parts) return '';
+    defs.push(`<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%">${parts}</filter>`);
+    return ` filter="url(#${id})"`;
+  };
+
+  const strokeAttrs = (n, stroke) => {
+    if (!stroke || !(n.strokeWidth > 0)) return '';
+    const color = firstColor(stroke) || '#000';
+    const dash = n.dash && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
+    return ` stroke="${esc(color)}" stroke-width="${num(n.strokeWidth)}"`
+      + (n.type === 'line' || n.strokeCap ? ` stroke-linecap="${esc(n.strokeCap || 'round')}"` : '')
+      + (n.strokeJoin ? ` stroke-linejoin="${esc(n.strokeJoin)}"` : '')
+      + (dash ? ` stroke-dasharray="${dash.map(num).join(' ')}"` : '');
+  };
+
+  const fills = (n, fill) => svgPaints(fill, n.w, n.h, doc, defs, uid)
+    .map((p) => shape(n, ` fill="${esc(p.fill)}"${p.op != null ? ` fill-opacity="${num(p.op)}"` : ''}${p.blend ? ` style="mix-blend-mode:${esc(p.blend)}"` : ''}`)).join('');
+
   const node = (id, m) => {
     const n = doc.nodes[id];
     if (!n || n.visible === false) return '';
     const fill = fillOf(n, doc.styles), stroke = strokeOf(n, doc.styles);
     const op = n.opacity != null && n.opacity < 1 ? ` opacity="${num(n.opacity)}"` : '';
-    const t = mat(m);
+    const blend = n.blendMode && n.blendMode !== 'normal' && n.blendMode !== 'pass' ? ` style="mix-blend-mode:${esc(n.blendMode)}"` : '';
+    const filt = filterFor(n);
+    const head = `transform="${mat(m)}"${op}${blend}${filt}`;
     if (n.type === 'text') {
       const s = textOf(n, doc.styles);
       const L = textLayout(n, doc.styles);
-      const anchor = s.align === 'center' ? 'middle' : s.align === 'right' ? 'end' : 'start';
       const x = s.align === 'center' ? n.w / 2 : s.align === 'right' ? n.w : 0;
       const spans = L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc(l) || ' '}</tspan>`).join('');
-      return `<text transform="${t}"${op} fill="${esc(fill || '#000')}" font-family="${esc(fontStack(s.fontFamily))}" font-size="${num(s.fontSize)}" font-weight="${s.fontWeight}" text-anchor="${anchor}" dominant-baseline="central" xml:space="preserve"><title>${esc(n.name)}</title>${spans}</text>`;
+      const color = firstColor(fill) || '#000';
+      return `<text ${head} fill="${esc(color)}" font-family="${esc(fontStack(s.fontFamily))}" font-size="${num(s.fontSize)}" font-weight="${num(s.fontWeight || 400)}" text-anchor="${ALIGN[s.align] || 'start'}" dominant-baseline="central" xml:space="preserve"${s.decoration === 'underline' ? ' text-decoration="underline"' : s.decoration === 'strike' ? ' text-decoration="line-through"' : ''}><title>${esc(n.name)}</title>${spans}</text>`;
     }
-    const sAttr = stroke && n.strokeWidth > 0 ? ` stroke="${esc(stroke)}" stroke-width="${num(n.strokeWidth)}"${n.type === 'line' ? ' stroke-linecap="round"' : ''}${n.dashed ? ' stroke-dasharray="6 4"' : ''}` : '';
-    const fAttr = n.type === 'line' ? ' fill="none"' : ` fill="${fill ? esc(fill) : 'none'}"`;
-    if (!n.children || !n.children.length) return `<g transform="${t}"${op}>${shape(n, fAttr + sAttr)}</g>`;
-    let kids = n.children.map((c) => node(c, localMatrix(doc.nodes[c] || {}))).join('');
+    const fillSvg = n.type === 'line' ? '' : fills(n, fill);
+    const strokeSvg = strokeAttrs(n, stroke) ? shape(n, ' fill="none"' + strokeAttrs(n, stroke)) : '';
+    if (!n.children || !n.children.length) return `<g ${head}>${fillSvg}${strokeSvg}</g>`;
+    let kids = n.children.map((c) => node(c, localMatrix(doc.nodes[c] || { x: 0, y: 0, w: 0, h: 0 }))).join('');
     if (n.clip !== false) {
-      const cid = `clip${clipN++}`;
+      const cid = uid();
       defs.push(`<clipPath id="${cid}">${shape(n, '')}</clipPath>`);
       kids = `<g clip-path="url(#${cid})">${kids}</g>`;
     }
-    return `<g transform="${t}"${op} id="${esc(n.name).replace(/\s+/g, '_')}">${fill ? shape(n, fAttr) : ''}${kids}${sAttr ? shape(n, ' fill="none"' + sAttr) : ''}</g>`;
+    return `<g ${head} id="${esc(String(n.name).replace(/\s+/g, '_'))}">${fillSvg}${kids}${strokeSvg}</g>`;
   };
+
   const body = list.map((id) => {
     const n = doc.nodes[id];
-    const pm = n.parent ? worldMatrix(doc, n.parent) : IDENT;
-    const lm = localMatrix(n);
-    const m = [pm[0] * lm[0] + pm[2] * lm[1], pm[1] * lm[0] + pm[3] * lm[1], pm[0] * lm[2] + pm[2] * lm[3], pm[1] * lm[2] + pm[3] * lm[3], pm[0] * lm[4] + pm[2] * lm[5] + pm[4] - b.x, pm[1] * lm[4] + pm[3] * lm[5] + pm[5] - b.y];
+    const m = mul(n.parent ? worldMatrix(doc, n.parent) : IDENT, localMatrix(n));
+    m[4] -= b.x; m[5] -= b.y;
     return node(id, m);
   }).join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${num(b.w)}" height="${num(b.h)}" viewBox="0 0 ${num(b.w)} ${num(b.h)}">\n${defs.length ? `<defs>${defs.join('')}</defs>\n` : ''}${body}\n</svg>\n`;
 }
 
-export async function toPNG(doc, ids, scale = 2) {
+export async function toRaster(doc, ids, { scale = 2, type = 'image/png', quality = 0.92, background = null } = {}) {
   const list = (ids && ids.length ? ids : doc.children).filter((id) => doc.nodes[id]);
   const b = exportBounds(doc, list);
   if (!b) throw new Error('Nothing to export');
+  await preloadImages(doc);
   const w = Math.max(1, Math.ceil(b.w * scale)), h = Math.max(1, Math.ceil(b.h * scale));
   if (w * h > 16384 * 16384) throw new Error('Export is too large; lower the scale');
   const canvas = new OffscreenCanvas(w, h);
   const ctx = canvas.getContext('2d');
+  if (background || type === 'image/jpeg') { ctx.fillStyle = background || '#FFFFFF'; ctx.fillRect(0, 0, w, h); }
   ctx.setTransform(scale, 0, 0, scale, -b.x * scale, -b.y * scale);
   for (const id of list) {
     const n = doc.nodes[id];
     drawNodes(ctx, doc, [id], {}, n.parent ? worldMatrix(doc, n.parent) : IDENT, 1);
   }
-  return canvas.convertToBlob({ type: 'image/png' });
+  return canvas.convertToBlob({ type, quality });
 }
+export const toPNG = (doc, ids, scale = 2) => toRaster(doc, ids, { scale });
+export { paints };
