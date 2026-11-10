@@ -18,7 +18,7 @@ function paintCSS(v, doc) {
     else if (p.type === 'linear') layers.push({ image: `linear-gradient(${Math.round(((p.angle ?? 90) + 90) * 100) / 100}deg, ${stops})` });
     else if (p.type === 'radial' || p.type === 'diamond') layers.push({ image: `radial-gradient(ellipse at ${Math.round((p.cx ?? 0.5) * 100)}% ${Math.round((p.cy ?? 0.5) * 100)}%, ${stops})` });
     else if (p.type === 'angular') layers.push({ image: `conic-gradient(from ${Math.round(((p.angle || 0) + 90) * 100) / 100}deg at ${Math.round((p.cx ?? 0.5) * 100)}% ${Math.round((p.cy ?? 0.5) * 100)}%, ${stops})` });
-    else if (p.type === 'image' && doc.assets && doc.assets[p.asset]) layers.push({ image: `url(data:${doc.assets[p.asset].mime};base64,${doc.assets[p.asset].data})`, size: p.mode === 'fit' ? 'contain' : p.mode === 'tile' ? 'auto' : 'cover' });
+    else if (p.type === 'image' && doc.assets && doc.assets[p.asset] && /^[A-Za-z0-9+/]*={0,2}$/.test(doc.assets[p.asset].data) && /^image\/(png|jpeg|gif|webp|avif)$/.test(doc.assets[p.asset].mime)) layers.push({ image: `url(data:${doc.assets[p.asset].mime};base64,${doc.assets[p.asset].data})`, size: p.mode === 'fit' ? 'contain' : p.mode === 'tile' ? 'auto' : 'cover' });
   }
   // A solid under gradients becomes the background colour; any other solid becomes a flat gradient.
   const out = {};
@@ -104,7 +104,9 @@ export function cssFor(doc, id, { root = false } = {}) {
   return css;
 }
 
-export const cssText = (css, indent = '') => Object.entries(css).map(([k, v]) => `${indent}${k}: ${v};`).join('\n');
+// A CSS value from a document must not end its declaration, its rule or the <style> element.
+export const cssSafe = (v) => String(v).replace(/[<>{};\\]/g, '').replace(/\/\*|\*\//g, '');
+export const cssText = (css, indent = '') => Object.entries(css).map(([k, v]) => `${indent}${k}: ${cssSafe(v)};`).join('\n');
 const cls = (n, used) => {
   let base = String(n.name || n.type).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || n.type;
   if (/^[0-9]/.test(base)) base = 'l-' + base;
@@ -146,7 +148,7 @@ export function toReact(doc, ids) {
     const n = doc.nodes[id];
     if (!n || n.visible === false) return '';
     const pad = '  '.repeat(depth);
-    const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(v)}`).join(', ');
+    const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(cssSafe(v))}`).join(', ');
     if (n.type === 'vector' || n.type === 'polygon' || n.type === 'star' || n.type === 'line') {
       const svg = toSVG({ ...doc, children: [id] }, [id]).trim().replace(/\n/g, '');
       return `${pad}<div style={{ ${style} }} dangerouslySetInnerHTML={{ __html: ${JSON.stringify(svg)} }} />`;

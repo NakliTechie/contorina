@@ -44,7 +44,7 @@ let onImageReady = () => {};
 export function setImageReadyHandler(fn) { onImageReady = fn; }
 export function imageFor(doc, id) {
   const a = doc.assets && doc.assets[id];
-  if (!a) return null;
+  if (!a || !/^image\/(png|jpeg|gif|webp|avif)$/.test(a.mime) || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) return null;
   let e = images.get(id);
   if (!e) {
     e = { img: null, ready: false };
@@ -155,7 +155,7 @@ export function svgPaints(v, w, h, doc, defs, uid) {
       continue;
     } else if (p.type === 'image') {
       const a = doc.assets && doc.assets[p.asset];
-      if (!a) continue;
+      if (!a || !/^image\/(png|jpeg|gif|webp|avif)$/.test(a.mime) || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) continue;
       const par = p.mode === 'fit' ? 'xMidYMid meet' : 'xMidYMid slice';
       defs.push(`<pattern id="${id}" patternUnits="objectBoundingBox" width="1" height="1" viewBox="0 0 ${n3(w)} ${n3(h)}" preserveAspectRatio="none"><image href="data:${esc(a.mime)};base64,${a.data}" width="${n3(w)}" height="${n3(h)}" preserveAspectRatio="${par}"/></pattern>`);
     }

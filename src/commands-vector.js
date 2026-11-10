@@ -1,7 +1,7 @@
 // Commands for paints, images, vectors and booleans (scope layer 3). DOM-free, like commands.js.
 import polygonClipping from 'polygon-clipping';
 import { register, get } from './registry.js';
-import { makeNode, topmost, uid } from './doc.js';
+import { makeNode, topmost, uid, IMAGE_MIME, isBase64 } from './doc.js';
 import { worldMatrix, inv, IDENT, round2 } from './geom.js';
 import { outlineD, outlineInParent, transformD, parsePath, flatten, fitVector, serialize, polygonD } from './vector.js';
 import { firstColor } from './paint.js';
@@ -47,7 +47,8 @@ register(
     description: 'Store an image (base64 data, MIME type) in the document and return its asset id.',
     params: { mime: { type: 'string', required: true }, data: { type: 'string', required: true }, name: { type: 'string' }, w: { type: 'number' }, h: { type: 'number' }, id: { type: 'string' } },
     doc(tx, p) {
-      if (!/^image\/(png|jpeg|gif|webp|svg\+xml|avif)$/.test(p.mime)) throw new Error(`Unsupported image type ${p.mime}`);
+      if (!IMAGE_MIME.test(p.mime)) throw new Error(`Unsupported image type ${p.mime}`);
+      if (!isBase64(p.data)) throw new Error('Image data must be base64');
       const id = p.id || 'img' + uid();
       tx.doc.assets[id] = { mime: p.mime, data: p.data, name: p.name || id, w: p.w, h: p.h };
       return { value: id };
@@ -87,8 +88,12 @@ register(
       const n = tx.get(p.id);
       if (!n || n.type !== 'vector' || n.src) return false;
       const f = fitVector(p.d);
-      // The path moved inside the box; move the box so the drawing stays put (exact when unrotated).
-      tx.set(p.id, { x: round2(n.x + f.x), y: round2(n.y + f.y), w: f.w, h: f.h, vw: f.vw, vh: f.vh, d: f.d });
+      // The path moved inside the box by (f.x, f.y) and the box changed size, so its centre moves by
+      // R * (f + new half size - old half size); then every untouched point stays where it was on screen.
+      const r = ((n.rotation || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+      const vx = f.x + f.w / 2 - n.w / 2, vy = f.y + f.h / 2 - n.h / 2;
+      const cx = n.x + n.w / 2 + c * vx - s * vy, cy = n.y + n.h / 2 + s * vx + c * vy;
+      tx.set(p.id, { x: round2(cx - f.w / 2), y: round2(cy - f.h / 2), w: f.w, h: f.h, vw: f.vw, vh: f.vh, d: f.d });
     },
   },
   {

@@ -3735,12 +3735,50 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const rootId = walk2(id, null);
     return { rootId, nodes: out };
   }
+  var IMAGE_MIME = /^image\/(png|jpeg|gif|webp|avif)$/;
+  var isBase64 = (s) => typeof s === "string" && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
+  var BIND_KEYS = /* @__PURE__ */ new Set(["fill", "stroke", "w", "h", "opacity", "radius", "strokeWidth", "fontSize", "gap", "padding", "text", "name", "visible"]);
+  var NUM_KEYS = ["x", "y", "w", "h", "rotation", "opacity", "strokeWidth", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "minW", "maxW", "minH", "maxH", "vw", "vh", "sides", "points", "inner"];
+  var finite = (v, d = 0) => typeof v === "number" && Number.isFinite(v) ? v : d;
   function validateDoc(d) {
     if (!d || typeof d !== "object") throw new Error("Not a Figger document");
-    if (!Array.isArray(d.children) || typeof d.nodes !== "object") throw new Error("Document lacks children or nodes");
+    if (!Array.isArray(d.children) || !d.nodes || typeof d.nodes !== "object") throw new Error("Document lacks children or nodes");
     if (d.version > FORMAT_VERSION) throw new Error(`Document format ${d.version} is newer than this Figger (${FORMAT_VERSION})`);
     for (const id of d.children) if (!d.nodes[id]) throw new Error(`Missing node ${id}`);
-    return { version: FORMAT_VERSION, name: d.name || "Untitled", children: d.children, nodes: d.nodes, styles: d.styles || {}, assets: d.assets || {}, ...d.pages ? { pages: d.pages, page: d.page } : {}, ...d.variables ? { variables: d.variables } : {} };
+    const nodes = {};
+    for (const [id, raw] of Object.entries(d.nodes)) {
+      if (!raw || typeof raw !== "object" || !TYPE_DEFAULTS[raw.type]) continue;
+      const n = { ...raw, id };
+      for (const k of NUM_KEYS) if (k in n && n[k] !== void 0 && n[k] !== null) n[k] = finite(Number(n[k]), k === "opacity" ? 1 : 0);
+      if (n.fontWeight !== void 0) n.fontWeight = Math.max(1, Math.min(1e3, Math.round(n.fontWeight || 400)));
+      n.w = Math.max(0, n.w ?? 0);
+      n.h = Math.max(0, n.h ?? 0);
+      if (Array.isArray(n.radius)) n.radius = n.radius.slice(0, 4).map((v) => Math.max(0, finite(Number(v))));
+      else if (n.radius !== void 0) n.radius = Math.max(0, finite(Number(n.radius)));
+      if (n.dash !== void 0) n.dash = Array.isArray(n.dash) ? n.dash.map(Number).filter((v) => Number.isFinite(v) && v >= 0).slice(0, 16) : void 0;
+      if (n.bind) n.bind = Object.fromEntries(Object.entries(n.bind).filter(([k, v]) => BIND_KEYS.has(k) && typeof v === "string"));
+      if (n.grids) n.grids = Array.isArray(n.grids) ? n.grids.slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(finite(g.count, 1)))), size: Math.max(2, finite(g.size, 8)), gutter: Math.max(0, finite(g.gutter)), margin: Math.max(0, finite(g.margin)) })) : void 0;
+      if (n.children !== void 0) n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === "string") : [];
+      if (typeof n.text !== "undefined") n.text = String(n.text);
+      nodes[id] = n;
+    }
+    for (const n of Object.values(nodes)) if (n.children) n.children = n.children.filter((c) => nodes[c]);
+    const assets = {};
+    for (const [id, a] of Object.entries(d.assets || {})) if (a && IMAGE_MIME.test(a.mime) && isBase64(a.data)) assets[id] = { mime: a.mime, data: a.data, name: String(a.name || id), w: finite(a.w), h: finite(a.h) };
+    const out = { version: FORMAT_VERSION, name: String(d.name || "Untitled"), children: d.children.filter((c) => nodes[c]), nodes, styles: d.styles && typeof d.styles === "object" ? d.styles : {}, assets };
+    if (Array.isArray(d.pages) && d.pages.length) {
+      out.pages = d.pages.filter((g) => g && typeof g.id === "string").map((g) => ({ id: g.id, name: String(g.name || "Page"), children: (Array.isArray(g.children) ? g.children : []).filter((c) => nodes[c]) }));
+      const open = out.pages.find((g) => g.id === d.page);
+      if (open) out.page = open.id;
+      else if (out.pages.length) {
+        out.page = out.pages[0].id;
+        out.children = out.pages[0].children.slice();
+      }
+      if (!out.pages.length) delete out.pages;
+    }
+    if (d.variables && typeof d.variables === "object") out.variables = { collections: d.variables.collections || {}, vars: d.variables.vars || {} };
+    if (typeof d.flowStart === "string" && nodes[d.flowStart]) out.flowStart = d.flowStart;
+    return out;
   }
 
   // src/geom.js
@@ -5348,8 +5386,9 @@ pre.code.small { max-height: 40vh; margin: 0; }
       cur.segs.push({ c: "C", pts: [[a, b], [c, e], [f2, g]] });
     };
     while (i < toks.length) {
+      const at = i;
       if (!isNum()) cmd = toks[i++];
-      else if (!cmd) {
+      else if (!cmd || cmd === "Z" || cmd === "z") {
         i++;
         continue;
       }
@@ -5444,6 +5483,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         default:
           i++;
       }
+      if (i === at) i++;
     }
     return subs;
   }
@@ -5637,7 +5677,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
   }
   function imageFor(doc, id) {
     const a = doc.assets && doc.assets[id];
-    if (!a) return null;
+    if (!a || !/^image\/(png|jpeg|gif|webp|avif)$/.test(a.mime) || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) return null;
     let e = images.get(id);
     if (!e) {
       e = { img: null, ready: false };
@@ -5765,7 +5805,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         continue;
       } else if (p.type === "image") {
         const a = doc.assets && doc.assets[p.asset];
-        if (!a) continue;
+        if (!a || !/^image\/(png|jpeg|gif|webp|avif)$/.test(a.mime) || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data)) continue;
         const par = p.mode === "fit" ? "xMidYMid meet" : "xMidYMid slice";
         defs.push(`<pattern id="${id}" patternUnits="objectBoundingBox" width="1" height="1" viewBox="0 0 ${n3(w)} ${n3(h2)}" preserveAspectRatio="none"><image href="data:${esc(a.mime)};base64,${a.data}" width="${n3(w)}" height="${n3(h2)}" preserveAspectRatio="${par}"/></pattern>`);
       }
@@ -5811,7 +5851,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       description: "Store an image (base64 data, MIME type) in the document and return its asset id.",
       params: { mime: { type: "string", required: true }, data: { type: "string", required: true }, name: { type: "string" }, w: { type: "number" }, h: { type: "number" }, id: { type: "string" } },
       doc(tx, p) {
-        if (!/^image\/(png|jpeg|gif|webp|svg\+xml|avif)$/.test(p.mime)) throw new Error(`Unsupported image type ${p.mime}`);
+        if (!IMAGE_MIME.test(p.mime)) throw new Error(`Unsupported image type ${p.mime}`);
+        if (!isBase64(p.data)) throw new Error("Image data must be base64");
         const id = p.id || "img" + uid();
         tx.doc.assets[id] = { mime: p.mime, data: p.data, name: p.name || id, w: p.w, h: p.h };
         return { value: id };
@@ -5863,7 +5904,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const n = tx.get(p.id);
         if (!n || n.type !== "vector" || n.src) return false;
         const f2 = fitVector(p.d);
-        tx.set(p.id, { x: round2(n.x + f2.x), y: round2(n.y + f2.y), w: f2.w, h: f2.h, vw: f2.vw, vh: f2.vh, d: f2.d });
+        const r = (n.rotation || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        const vx = f2.x + f2.w / 2 - n.w / 2, vy = f2.y + f2.h / 2 - n.h / 2;
+        const cx = n.x + n.w / 2 + c * vx - s * vy, cy = n.y + n.h / 2 + s * vx + c * vy;
+        tx.set(p.id, { x: round2(cx - f2.w / 2), y: round2(cy - f2.h / 2), w: f2.w, h: f2.h, vw: f2.vw, vh: f2.vh, d: f2.d });
       }
     },
     {
@@ -5941,6 +5985,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     boolean: ["visible"]
   };
   var VAR_TYPES = Object.keys(BINDABLE);
+  var sameType = (type, val) => type === "color" ? typeof val === "string" && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(val) : type === "number" ? typeof val === "number" && Number.isFinite(val) : type === "string" ? typeof val === "string" : typeof val === "boolean";
   function emptyVariables() {
     return { collections: {}, vars: {} };
   }
@@ -5971,7 +6016,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
       const look = modeLookup(tx.doc, id);
       const patch = {};
       for (const [prop, vid] of Object.entries(n.bind)) {
+        const v = V.vars[vid];
+        if (!v || !BINDABLE[v.type] || !BINDABLE[v.type].includes(prop)) continue;
         const val = valueOf(V, vid, look);
+        if (!sameType(v.type, val)) continue;
         if (val === void 0) continue;
         if (prop === "gap" || prop === "padding") {
           if (!n.layout) continue;
@@ -5999,8 +6047,13 @@ pre.code.small { max-height: 40vh; margin: 0; }
     else tx.doc.variables = { collections: { ...tx.doc.variables.collections }, vars: { ...tx.doc.variables.vars } };
     return tx.doc.variables;
   }
-  var checkValue = (type, v) => {
-    if (v && typeof v === "object" && v.alias) return v;
+  var checkValue = (type, v, V) => {
+    if (v && typeof v === "object" && "alias" in v) {
+      const t = V && V.vars[v.alias];
+      if (!t) throw new Error(`No variable ${v.alias} to alias`);
+      if (t.type !== type) throw new Error(`A ${type} variable cannot alias a ${t.type} variable`);
+      return { alias: v.alias };
+    }
     if (type === "color" && !(typeof v === "string" && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v))) throw new Error("A colour variable takes #RRGGBB or #RRGGBBAA");
     if (type === "number" && !(typeof v === "number" && Number.isFinite(v))) throw new Error("A number variable takes a number");
     if (type === "string" && typeof v !== "string") throw new Error("A string variable takes text");
@@ -6062,7 +6115,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const c = V.collections[p.collection];
         if (!c) throw new Error(`No collection ${p.collection}`);
         const id = p.id || "v" + uid();
-        const val = checkValue(p.type, p.value);
+        const val = checkValue(p.type, p.value, V);
         V.vars[id] = { name: p.name, collection: p.collection, type: p.type, values: Object.fromEntries(c.modes.map((m) => [m.id, val])) };
         return { value: id };
       }
@@ -6079,7 +6132,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const v = V.vars[p.id];
         if (!v) throw new Error(`No variable ${p.id}`);
         if (p.value && p.value.alias === p.id) throw new Error("A variable cannot alias itself");
-        V.vars[p.id] = { ...v, values: { ...v.values, [p.mode]: checkValue(v.type, p.value) } };
+        V.vars[p.id] = { ...v, values: { ...v.values, [p.mode]: checkValue(v.type, p.value, V) } };
       }
     },
     {
@@ -6215,7 +6268,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         if (!target) throw new Error(`No page ${p.id}`);
         savePage(tx);
         tx.doc.page = p.id;
-        tx.doc.children = (tx.doc.pages.find((g) => g.id === p.id).children || []).slice();
+        tx.doc.children = (tx.doc.pages.find((g) => g.id === p.id).children || []).filter((id) => tx.get(id));
         return { select: [] };
       }
     },
@@ -6261,6 +6314,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       doc(tx, p, env2) {
         ensurePages(tx);
         if (p.page === tx.doc.page) return false;
+        if (!tx.doc.pages.some((g) => g.id === p.page)) throw new Error(`No page ${p.page}`);
         const ids = topmost(tx.doc, sel3(tx, p, env2)).filter((id) => !tx.get(id).parent);
         if (!ids.length) throw new Error("Move top-level layers between pages");
         savePage(tx);
@@ -6279,7 +6333,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       doc(tx, p, env2) {
         const ids = sel3(tx, p, env2).filter((id) => tx.get(id).type === "frame" && !tx.get(id).src);
         if (!ids.length) return false;
-        for (const id of ids) tx.set(id, { grids: p.grids && p.grids.length ? p.grids : void 0 });
+        const grids = (p.grids || []).slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(Number(g.count) || 1))), size: Math.max(2, Number(g.size) || 8), gutter: Math.max(0, Number(g.gutter) || 0), margin: Math.max(0, Number(g.margin) || 0) }));
+        for (const id of ids) tx.set(id, { grids: grids.length ? grids : void 0 });
       }
     }
   );
@@ -6397,7 +6452,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
     }
     w = w || 100;
     h2 = h2 || 100;
-    const layers = walkKids(svg, root, inheritStyle({}, svg), ids, { w, h: h2 });
+    const vp = { w, h: h2, budget: 2e4, stack: /* @__PURE__ */ new Set() };
+    const layers = walkKids(svg, root, inheritStyle({}, svg), ids, vp);
     return { w, h: h2, layers };
   }
   function findFirst(n, tag) {
@@ -6479,6 +6535,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     return out;
   }
   function walk(el, parentM, parentStyle, ids, vp) {
+    if (--vp.budget < 0) throw new Error("The SVG is too complex to import (over 20,000 elements after <use> expansion)");
     if (["defs", "clipPath", "mask", "linearGradient", "radialGradient", "pattern", "symbol", "style", "title", "desc", "metadata", "marker", "filter"].includes(el.tag)) return null;
     const m = mul(parentM, parseTransform(el.attrs.transform));
     const s = inheritStyle(parentStyle, el);
@@ -6501,8 +6558,13 @@ pre.code.small { max-height: 40vh; margin: 0; }
       }
       case "use": {
         const ref = ids[(a.href || a["xlink:href"] || "").replace(/^#/, "")];
-        if (!ref) return null;
-        return walk(ref, mul(m, [1, 0, 0, 1, len(a.x), len(a.y)]), s, ids, vp);
+        if (!ref || vp.stack.has(ref) || vp.stack.size >= 16) return null;
+        vp.stack.add(ref);
+        try {
+          return walk(ref, mul(m, [1, 0, 0, 1, len(a.x), len(a.y)]), s, ids, vp);
+        } finally {
+          vp.stack.delete(ref);
+        }
       }
       case "rect": {
         const x = len(a.x, vp.w), y = len(a.y, vp.h), w = len(a.width, vp.w), h2 = len(a.height, vp.h);
@@ -6559,7 +6621,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       }
       case "image": {
         const href = a.href || a["xlink:href"] || "";
-        const mm = href.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+        const mm = href.match(/^data:(image\/(?:png|jpeg|gif|webp|avif));base64,([A-Za-z0-9+/]*={0,2})$/);
         if (!mm) return null;
         const x = len(a.x), y = len(a.y), w = len(a.width), h2 = len(a.height);
         return { type: "image", name: name || "Image", props: { x: m[0] * x + m[4], y: m[3] * y + m[5], w: w * m[0], h: h2 * m[3] }, asset: { mime: mm[1], data: mm[2], w, h: h2 } };
@@ -6843,22 +6905,25 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ctx2.shadowOffsetY = (e.y || 0) * s;
       ctx2.shadowBlur = (e.blur || 0) * s;
       ctx2.fillStyle = "#000";
-      if (n.type === "line") {
-        ctx2.strokeStyle = "#000";
-        ctx2.lineWidth = n.strokeWidth || 1;
-        ctx2.stroke(path);
-      } else {
+      {
         const far = 1e5;
         const t = ctx2.getTransform();
         ctx2.shadowOffsetX -= t.a * far;
         ctx2.shadowOffsetY -= t.b * far;
         ctx2.translate(far, 0);
-        if (e.spread) {
-          ctx2.lineWidth = e.spread * 2;
+        if (n.type === "line") {
           ctx2.strokeStyle = "#000";
+          ctx2.lineWidth = (n.strokeWidth || 1) + (e.spread || 0) * 2;
+          ctx2.lineCap = n.strokeCap || "round";
           ctx2.stroke(path);
+        } else {
+          if (e.spread) {
+            ctx2.lineWidth = e.spread * 2;
+            ctx2.strokeStyle = "#000";
+            ctx2.stroke(path);
+          }
+          ctx2.fill(path, rule);
         }
-        ctx2.fill(path, rule);
       }
       ctx2.restore();
     }
@@ -6920,7 +6985,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     ctx2.save();
     ctx2.lineCap = n.strokeCap || (n.type === "line" ? "round" : "butt");
     ctx2.lineJoin = n.strokeJoin || "miter";
-    if (n.dash && n.dash.length) ctx2.setLineDash(n.dash);
+    if (Array.isArray(n.dash) && n.dash.length) ctx2.setLineDash(n.dash.filter(Number.isFinite));
     else if (n.dashed) ctx2.setLineDash([6, 4]);
     ctx2.lineWidth = align === "center" ? w : w * 2;
     if (align === "inside") ctx2.clip(path);
@@ -6934,12 +6999,31 @@ pre.code.small { max-height: 40vh; margin: 0; }
     for (const p of ps) {
       ctx2.save();
       if (p.opacity != null) ctx2.globalAlpha *= p.opacity;
-      if (p.type === "solid") ctx2.strokeStyle = p.color;
-      else ctx2.strokeStyle = firstColor(p) || "#000";
+      if (p.blend && p.blend !== "normal") ctx2.globalCompositeOperation = p.blend;
+      ctx2.strokeStyle = strokePaint(ctx2, p, n);
       ctx2.stroke(path);
       ctx2.restore();
     }
     ctx2.restore();
+  }
+  function strokePaint(ctx2, p, n) {
+    const stops = (g) => {
+      for (const s of p.stops || []) {
+        try {
+          g.addColorStop(Math.min(1, Math.max(0, s.pos)), s.color);
+        } catch {
+        }
+      }
+      return g;
+    };
+    const w = n.w || 1, h2 = n.h || 1;
+    if (p.type === "linear") {
+      const a = (p.angle ?? 90) * Math.PI / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+      return stops(ctx2.createLinearGradient((0.5 - dx) * w, (0.5 - dy) * h2, (0.5 + dx) * w, (0.5 + dy) * h2));
+    }
+    if (p.type === "radial" || p.type === "diamond") return stops(ctx2.createRadialGradient((p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h2, 0, (p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h2, (p.r ?? 0.5) * Math.max(w, h2)));
+    if (p.type === "angular" && ctx2.createConicGradient) return stops(ctx2.createConicGradient((p.angle || 0) * Math.PI / 180, (p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h2));
+    return p.color || firstColor(p) || "#000";
   }
   function drawText(ctx2, n, styles, fill, effects, doc) {
     const t = textOf(n, styles);
@@ -7117,7 +7201,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const strokeAttrs = (n, stroke) => {
       if (!stroke || !(n.strokeWidth > 0)) return "";
       const color = firstColor(stroke) || "#000";
-      const dash = n.dash && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
+      const dash = Array.isArray(n.dash) && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
       return ` stroke="${esc2(color)}" stroke-width="${num(n.strokeWidth)}"` + (n.type === "line" || n.strokeCap ? ` stroke-linecap="${esc2(n.strokeCap || "round")}"` : "") + (n.strokeJoin ? ` stroke-linejoin="${esc2(n.strokeJoin)}"` : "") + (dash ? ` stroke-dasharray="${dash.map(num).join(" ")}"` : "");
     };
     const fills = (n, fill) => svgPaints(fill, n.w, n.h, doc, defs, uid2).map((p) => shape(n, ` fill="${esc2(p.fill)}"${p.op != null ? ` fill-opacity="${num(p.op)}"` : ""}${p.blend ? ` style="mix-blend-mode:${esc2(p.blend)}"` : ""}`)).join("");
@@ -7198,7 +7282,7 @@ ${defs.length ? `<defs>${defs.join("")}</defs>
       else if (p.type === "linear") layers.push({ image: `linear-gradient(${Math.round(((p.angle ?? 90) + 90) * 100) / 100}deg, ${stops})` });
       else if (p.type === "radial" || p.type === "diamond") layers.push({ image: `radial-gradient(ellipse at ${Math.round((p.cx ?? 0.5) * 100)}% ${Math.round((p.cy ?? 0.5) * 100)}%, ${stops})` });
       else if (p.type === "angular") layers.push({ image: `conic-gradient(from ${Math.round(((p.angle || 0) + 90) * 100) / 100}deg at ${Math.round((p.cx ?? 0.5) * 100)}% ${Math.round((p.cy ?? 0.5) * 100)}%, ${stops})` });
-      else if (p.type === "image" && doc.assets && doc.assets[p.asset]) layers.push({ image: `url(data:${doc.assets[p.asset].mime};base64,${doc.assets[p.asset].data})`, size: p.mode === "fit" ? "contain" : p.mode === "tile" ? "auto" : "cover" });
+      else if (p.type === "image" && doc.assets && doc.assets[p.asset] && /^[A-Za-z0-9+/]*={0,2}$/.test(doc.assets[p.asset].data) && /^image\/(png|jpeg|gif|webp|avif)$/.test(doc.assets[p.asset].mime)) layers.push({ image: `url(data:${doc.assets[p.asset].mime};base64,${doc.assets[p.asset].data})`, size: p.mode === "fit" ? "contain" : p.mode === "tile" ? "auto" : "cover" });
     }
     const out = {};
     const imgs = [];
@@ -7294,7 +7378,8 @@ ${defs.length ? `<defs>${defs.join("")}</defs>
     if (filters.length) css.filter = filters.join(" ");
     return css;
   }
-  var cssText = (css, indent = "") => Object.entries(css).map(([k, v]) => `${indent}${k}: ${v};`).join("\n");
+  var cssSafe = (v) => String(v).replace(/[<>{};\\]/g, "").replace(/\/\*|\*\//g, "");
+  var cssText = (css, indent = "") => Object.entries(css).map(([k, v]) => `${indent}${k}: ${cssSafe(v)};`).join("\n");
   var cls = (n, used) => {
     let base = String(n.name || n.type).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || n.type;
     if (/^[0-9]/.test(base)) base = "l-" + base;
@@ -7354,7 +7439,7 @@ ${body}
       const n = doc.nodes[id];
       if (!n || n.visible === false) return "";
       const pad = "  ".repeat(depth);
-      const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(v)}`).join(", ");
+      const style = Object.entries(cssFor(doc, id, { root })).map(([k, v]) => `${camel(k)}: ${JSON.stringify(cssSafe(v))}`).join(", ");
       if (n.type === "vector" || n.type === "polygon" || n.type === "star" || n.type === "line") {
         const svg = toSVG({ ...doc, children: [id] }, [id]).trim().replace(/\n/g, "");
         return `${pad}<div style={{ ${style} }} dangerouslySetInnerHTML={{ __html: ${JSON.stringify(svg)} }} />`;
@@ -8018,7 +8103,8 @@ ${body}</vector>
 
   // src/pdf.js
   var f = (v) => {
-    const x = Math.round(v * 1e3) / 1e3;
+    const x = Math.round(Number(v) * 1e3) / 1e3;
+    if (!Number.isFinite(x) || Math.abs(x) > 1e9) return "0";
     return Object.is(x, -0) ? "0" : String(x);
   };
   function rgb(hex) {
@@ -8120,7 +8206,7 @@ ${body}</vector>
         const c = rgb(firstColor(stroke) || "#000000");
         if (c) {
           out.push(`/${gs(a, a * c.a)} gs`, `${f(c.r)} ${f(c.g)} ${f(c.b)} RG`, `${f(n.strokeWidth)} w`);
-          if (n.dash && n.dash.length) out.push(`[${n.dash.map(f).join(" ")}] 0 d`);
+          if (Array.isArray(n.dash) && n.dash.length) out.push(`[${n.dash.map(f).join(" ")}] 0 d`);
           if (n.type === "line" || n.strokeCap === "round") out.push("1 J");
           out.push(ops, "S");
         }
@@ -8847,9 +8933,18 @@ ${xo}
     }
     function drawGrids() {
       const doc = state.doc;
-      for (const id in doc.nodes) {
+      const onPage = [];
+      const walk2 = (ids) => {
+        for (const id of ids) {
+          const n = doc.nodes[id];
+          if (!n || n.visible === false) continue;
+          if (n.grids && n.type === "frame") onPage.push(id);
+          if (n.children) walk2(n.children);
+        }
+      };
+      walk2(doc.children);
+      for (const id of onPage) {
         const n = doc.nodes[id];
-        if (!n.grids || n.visible === false || n.type !== "frame") continue;
         const m = worldMatrix(doc, id);
         const z = state.view.zoom;
         ctx2.save();
@@ -8864,7 +8959,7 @@ ${xo}
           ctx2.fillStyle = g.color || "rgba(255,0,0,0.1)";
           ctx2.strokeStyle = g.color || "rgba(255,0,0,0.1)";
           if (g.type === "grid") {
-            const sz = Math.max(1, g.size || 8);
+            const sz = Math.max(2, g.size || 8, 2 / z);
             ctx2.lineWidth = 1 / z;
             ctx2.beginPath();
             for (let x = sz; x < n.w; x += sz) {
@@ -8879,7 +8974,7 @@ ${xo}
             continue;
           }
           const cols = g.type === "columns";
-          const total = cols ? n.w : n.h, count = Math.max(1, g.count || 1), gut = g.gutter || 0, mar = g.margin || 0;
+          const total = cols ? n.w : n.h, count = Math.max(1, Math.min(200, g.count || 1)), gut = g.gutter || 0, mar = g.margin || 0;
           const size2 = (total - 2 * mar - gut * (count - 1)) / count;
           for (let i = 0; i < count; i++) {
             const a = mar + i * (size2 + gut);
@@ -11071,7 +11166,7 @@ ${xo}
         tx.doc.nodes = { ...d.nodes };
         tx.doc.styles = { ...d.styles };
         tx.doc.assets = { ...d.assets };
-        for (const k of ["pages", "page", "variables"]) {
+        for (const k of ["pages", "page", "variables", "flowStart"]) {
           if (d[k] === void 0) delete tx.doc[k];
           else tx.doc[k] = structuredClone(d[k]);
         }

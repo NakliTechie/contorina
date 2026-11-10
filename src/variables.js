@@ -13,6 +13,8 @@ export const BINDABLE = {
 };
 export const VAR_TYPES = Object.keys(BINDABLE);
 
+const sameType = (type, val) => (type === 'color' ? typeof val === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(val) : type === 'number' ? typeof val === 'number' && Number.isFinite(val) : type === 'string' ? typeof val === 'string' : typeof val === 'boolean');
+
 export function emptyVariables() { return { collections: {}, vars: {} }; }
 
 // The value of a variable in a mode, following aliases (cycle-safe).
@@ -47,7 +49,10 @@ export function applyVariables(tx) {
     const look = modeLookup(tx.doc, id);
     const patch = {};
     for (const [prop, vid] of Object.entries(n.bind)) {
+      const v = V.vars[vid];
+      if (!v || !BINDABLE[v.type] || !BINDABLE[v.type].includes(prop)) continue; // a variable drives only its own kind of property
       const val = valueOf(V, vid, look);
+      if (!sameType(v.type, val)) continue;
       if (val === undefined) continue;
       if (prop === 'gap' || prop === 'padding') {
         if (!n.layout) continue;

@@ -155,10 +155,49 @@ export function cloneSubtree(doc, id, idMap = new Map()) {
 
 export function nodeCount(doc) { return Object.keys(doc.nodes).length; }
 
+// Documents are untrusted (a .figger.json, a paste or an agent call can come from anywhere), so loading
+// sanitises them: structure, ids, numbers, the keys variables may drive, image data and page lists.
+export const IMAGE_MIME = /^image\/(png|jpeg|gif|webp|avif)$/; // no SVG images: they can carry script
+export const isBase64 = (s) => typeof s === 'string' && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
+const BIND_KEYS = new Set(['fill', 'stroke', 'w', 'h', 'opacity', 'radius', 'strokeWidth', 'fontSize', 'gap', 'padding', 'text', 'name', 'visible']);
+const NUM_KEYS = ['x', 'y', 'w', 'h', 'rotation', 'opacity', 'strokeWidth', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'minW', 'maxW', 'minH', 'maxH', 'vw', 'vh', 'sides', 'points', 'inner'];
+const finite = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
 export function validateDoc(d) {
   if (!d || typeof d !== 'object') throw new Error('Not a Figger document');
-  if (!Array.isArray(d.children) || typeof d.nodes !== 'object') throw new Error('Document lacks children or nodes');
+  if (!Array.isArray(d.children) || !d.nodes || typeof d.nodes !== 'object') throw new Error('Document lacks children or nodes');
   if (d.version > FORMAT_VERSION) throw new Error(`Document format ${d.version} is newer than this Figger (${FORMAT_VERSION})`);
   for (const id of d.children) if (!d.nodes[id]) throw new Error(`Missing node ${id}`);
-  return { version: FORMAT_VERSION, name: d.name || 'Untitled', children: d.children, nodes: d.nodes, styles: d.styles || {}, assets: d.assets || {}, ...(d.pages ? { pages: d.pages, page: d.page } : {}), ...(d.variables ? { variables: d.variables } : {}) };
+  const nodes = {};
+  for (const [id, raw] of Object.entries(d.nodes)) {
+    if (!raw || typeof raw !== 'object' || !TYPE_DEFAULTS[raw.type]) continue;
+    const n = { ...raw, id };
+    for (const k of NUM_KEYS) if (k in n && n[k] !== undefined && n[k] !== null) n[k] = finite(Number(n[k]), k === 'opacity' ? 1 : 0);
+    if (n.fontWeight !== undefined) n.fontWeight = Math.max(1, Math.min(1000, Math.round(n.fontWeight || 400)));
+    n.w = Math.max(0, n.w ?? 0); n.h = Math.max(0, n.h ?? 0);
+    if (Array.isArray(n.radius)) n.radius = n.radius.slice(0, 4).map((v) => Math.max(0, finite(Number(v))));
+    else if (n.radius !== undefined) n.radius = Math.max(0, finite(Number(n.radius)));
+    if (n.dash !== undefined) n.dash = Array.isArray(n.dash) ? n.dash.map(Number).filter((v) => Number.isFinite(v) && v >= 0).slice(0, 16) : undefined;
+    if (n.bind) n.bind = Object.fromEntries(Object.entries(n.bind).filter(([k, v]) => BIND_KEYS.has(k) && typeof v === 'string'));
+    if (n.grids) n.grids = Array.isArray(n.grids) ? n.grids.slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(finite(g.count, 1)))), size: Math.max(2, finite(g.size, 8)), gutter: Math.max(0, finite(g.gutter)), margin: Math.max(0, finite(g.margin)) })) : undefined;
+    if (n.children !== undefined) n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string') : [];
+    if (typeof n.text !== 'undefined') n.text = String(n.text);
+    nodes[id] = n;
+  }
+  // Drop child references to missing nodes, and parents that do not list their child.
+  for (const n of Object.values(nodes)) if (n.children) n.children = n.children.filter((c) => nodes[c]);
+  const assets = {};
+  for (const [id, a] of Object.entries(d.assets || {})) if (a && IMAGE_MIME.test(a.mime) && isBase64(a.data)) assets[id] = { mime: a.mime, data: a.data, name: String(a.name || id), w: finite(a.w), h: finite(a.h) };
+  const out = { version: FORMAT_VERSION, name: String(d.name || 'Untitled'), children: d.children.filter((c) => nodes[c]), nodes, styles: d.styles && typeof d.styles === 'object' ? d.styles : {}, assets };
+  if (Array.isArray(d.pages) && d.pages.length) {
+    out.pages = d.pages.filter((g) => g && typeof g.id === 'string').map((g) => ({ id: g.id, name: String(g.name || 'Page'), children: (Array.isArray(g.children) ? g.children : []).filter((c) => nodes[c]) }));
+    // The open page must be one of the pages; its list is doc.children.
+    const open = out.pages.find((g) => g.id === d.page);
+    if (open) out.page = open.id;
+    else if (out.pages.length) { out.page = out.pages[0].id; out.children = out.pages[0].children.slice(); }
+    if (!out.pages.length) delete out.pages;
+  }
+  if (d.variables && typeof d.variables === 'object') out.variables = { collections: d.variables.collections || {}, vars: d.variables.vars || {} };
+  if (typeof d.flowStart === 'string' && nodes[d.flowStart]) out.flowStart = d.flowStart;
+  return out;
 }

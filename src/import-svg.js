@@ -93,7 +93,8 @@ export function svgToSpecs(src) {
     root = [w / vb[2], 0, 0, h / vb[3], (-vb[0] * w) / vb[2], (-vb[1] * h) / vb[3]];
   }
   w = w || 100; h = h || 100;
-  const layers = walkKids(svg, root, inheritStyle({}, svg), ids, { w, h });
+  const vp = { w, h, budget: 20000, stack: new Set() };
+  const layers = walkKids(svg, root, inheritStyle({}, svg), ids, vp);
   return { w, h, layers };
 }
 function findFirst(n, tag) { if (n.tag === tag) return n; for (const c of n.children || []) { const f = c.tag && findFirst(c, tag); if (f) return f; } return null; }
@@ -159,6 +160,7 @@ function walkKids(el, m, style, ids, vp) {
 }
 
 function walk(el, parentM, parentStyle, ids, vp) {
+  if (--vp.budget < 0) throw new Error('The SVG is too complex to import (over 20,000 elements after <use> expansion)');
   if (['defs', 'clipPath', 'mask', 'linearGradient', 'radialGradient', 'pattern', 'symbol', 'style', 'title', 'desc', 'metadata', 'marker', 'filter'].includes(el.tag)) return null;
   const m = mul(parentM, parseTransform(el.attrs.transform));
   const s = inheritStyle(parentStyle, el);
@@ -178,8 +180,10 @@ function walk(el, parentM, parentStyle, ids, vp) {
     }
     case 'use': {
       const ref = ids[(a.href || a['xlink:href'] || '').replace(/^#/, '')];
-      if (!ref) return null;
-      return walk(ref, mul(m, [1, 0, 0, 1, len(a.x), len(a.y)]), s, ids, vp);
+      // A <use> may not reach itself or nest past 16 levels.
+      if (!ref || vp.stack.has(ref) || vp.stack.size >= 16) return null;
+      vp.stack.add(ref);
+      try { return walk(ref, mul(m, [1, 0, 0, 1, len(a.x), len(a.y)]), s, ids, vp); } finally { vp.stack.delete(ref); }
     }
     case 'rect': {
       const x = len(a.x, vp.w), y = len(a.y, vp.h), w = len(a.width, vp.w), h = len(a.height, vp.h);
@@ -229,7 +233,7 @@ function walk(el, parentM, parentStyle, ids, vp) {
     }
     case 'image': {
       const href = a.href || a['xlink:href'] || '';
-      const mm = href.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+      const mm = href.match(/^data:(image\/(?:png|jpeg|gif|webp|avif));base64,([A-Za-z0-9+/]*={0,2})$/);
       if (!mm) return null;
       const x = len(a.x), y = len(a.y), w = len(a.width), h = len(a.height);
       return { type: 'image', name: name || 'Image', props: { x: m[0] * x + m[4], y: m[3] * y + m[5], w: w * m[0], h: h * m[3] }, asset: { mime: mm[1], data: mm[2], w, h } };

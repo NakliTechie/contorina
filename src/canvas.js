@@ -162,9 +162,11 @@ export function createCanvas(wrap, app) {
   // Layout grids: columns, rows or a square grid, inside every visible frame that has them.
   function drawGrids() {
     const doc = state.doc;
-    for (const id in doc.nodes) {
+    const onPage = [];
+    const walk = (ids) => { for (const id of ids) { const n = doc.nodes[id]; if (!n || n.visible === false) continue; if (n.grids && n.type === 'frame') onPage.push(id); if (n.children) walk(n.children); } };
+    walk(doc.children);
+    for (const id of onPage) {
       const n = doc.nodes[id];
-      if (!n.grids || n.visible === false || n.type !== 'frame') continue;
       const m = worldMatrix(doc, id);
       const z = state.view.zoom;
       ctx.save();
@@ -177,7 +179,7 @@ export function createCanvas(wrap, app) {
         ctx.fillStyle = g.color || 'rgba(255,0,0,0.1)';
         ctx.strokeStyle = g.color || 'rgba(255,0,0,0.1)';
         if (g.type === 'grid') {
-          const sz = Math.max(1, g.size || 8);
+          const sz = Math.max(2, g.size || 8, 2 / z); // never more lines than pixels
           ctx.lineWidth = 1 / z;
           ctx.beginPath();
           for (let x = sz; x < n.w; x += sz) { ctx.moveTo(x, 0); ctx.lineTo(x, n.h); }
@@ -186,7 +188,7 @@ export function createCanvas(wrap, app) {
           continue;
         }
         const cols = g.type === 'columns';
-        const total = cols ? n.w : n.h, count = Math.max(1, g.count || 1), gut = g.gutter || 0, mar = g.margin || 0;
+        const total = cols ? n.w : n.h, count = Math.max(1, Math.min(200, g.count || 1)), gut = g.gutter || 0, mar = g.margin || 0;
         const size = (total - 2 * mar - gut * (count - 1)) / count;
         for (let i = 0; i < count; i++) {
           const a = mar + i * (size + gut);

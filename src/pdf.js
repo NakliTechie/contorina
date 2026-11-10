@@ -9,7 +9,8 @@ import { outlineD, parsePath } from './vector.js';
 import { textLayout } from './text.js';
 import { exportBounds } from './export.js';
 
-const f = (v) => { const x = Math.round(v * 1000) / 1000; return Object.is(x, -0) ? '0' : String(x); };
+// PDF numbers: finite, no exponent notation; anything else prints as 0.
+const f = (v) => { const x = Math.round(Number(v) * 1000) / 1000; if (!Number.isFinite(x) || Math.abs(x) > 1e9) return '0'; return Object.is(x, -0) ? '0' : String(x); };
 function rgb(hex) {
   const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex || '');
   if (!m) return null;
@@ -111,7 +112,7 @@ export function toPDF(doc, ids, { images = {} } = {}) {
       const c = rgb(firstColor(stroke) || '#000000');
       if (c) {
         out.push(`/${gs(a, a * c.a)} gs`, `${f(c.r)} ${f(c.g)} ${f(c.b)} RG`, `${f(n.strokeWidth)} w`);
-        if (n.dash && n.dash.length) out.push(`[${n.dash.map(f).join(' ')}] 0 d`);
+        if (Array.isArray(n.dash) && n.dash.length) out.push(`[${n.dash.map(f).join(' ')}] 0 d`);
         if (n.type === 'line' || n.strokeCap === 'round') out.push('1 J');
         out.push(ops, 'S');
       }

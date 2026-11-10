@@ -66,8 +66,9 @@ export function parsePath(d) {
   const line = (x, y) => { if (!cur) start(cx, cy); cur.segs.push({ c: 'L', pts: [[x, y]] }); };
   const cubic = (a, b, c, e, f, g) => { if (!cur) start(cx, cy); cur.segs.push({ c: 'C', pts: [[a, b], [c, e], [f, g]] }); };
   while (i < toks.length) {
+    const at = i;
     if (!isNum()) cmd = toks[i++];
-    else if (!cmd) { i++; continue; }
+    else if (!cmd || cmd === 'Z' || cmd === 'z') { i++; continue; } // numbers with no command (or after Z) are skipped
     const rel = cmd === cmd.toLowerCase();
     const ox = rel ? cx : 0, oy = rel ? cy : 0;
     switch (cmd.toUpperCase()) {
@@ -87,6 +88,7 @@ export function parsePath(d) {
       case 'Z': { if (cur) cur.closed = true; cx = sx; cy = sy; cur = null; lastC = lastQ = null; break; }
       default: i++;
     }
+    if (i === at) i++; // every pass consumes at least one token
   }
   return subs;
 }

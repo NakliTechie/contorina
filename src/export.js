@@ -72,7 +72,7 @@ export function toSVG(doc, ids) {
   const strokeAttrs = (n, stroke) => {
     if (!stroke || !(n.strokeWidth > 0)) return '';
     const color = firstColor(stroke) || '#000';
-    const dash = n.dash && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
+    const dash = Array.isArray(n.dash) && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
     return ` stroke="${esc(color)}" stroke-width="${num(n.strokeWidth)}"`
       + (n.type === 'line' || n.strokeCap ? ` stroke-linecap="${esc(n.strokeCap || 'round')}"` : '')
       + (n.strokeJoin ? ` stroke-linejoin="${esc(n.strokeJoin)}"` : '')

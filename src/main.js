@@ -192,7 +192,7 @@ register(
     doc(tx, p) {
       const d = validateDoc(structuredClone(p.doc));
       tx.doc.name = d.name; tx.doc.children = d.children.slice(); tx.doc.nodes = { ...d.nodes }; tx.doc.styles = { ...d.styles }; tx.doc.assets = { ...d.assets };
-      for (const k of ['pages', 'page', 'variables']) { if (d[k] === undefined) delete tx.doc[k]; else tx.doc[k] = structuredClone(d[k]); }
+      for (const k of ['pages', 'page', 'variables', 'flowStart']) { if (d[k] === undefined) delete tx.doc[k]; else tx.doc[k] = structuredClone(d[k]); }
       tx.own = new Set();
       return { select: [] };
     },

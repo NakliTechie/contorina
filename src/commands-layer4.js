@@ -10,8 +10,13 @@ function vars(tx) {
   else tx.doc.variables = { collections: { ...tx.doc.variables.collections }, vars: { ...tx.doc.variables.vars } };
   return tx.doc.variables;
 }
-const checkValue = (type, v) => {
-  if (v && typeof v === 'object' && v.alias) return v;
+const checkValue = (type, v, V) => {
+  if (v && typeof v === 'object' && 'alias' in v) {
+    const t = V && V.vars[v.alias];
+    if (!t) throw new Error(`No variable ${v.alias} to alias`);
+    if (t.type !== type) throw new Error(`A ${type} variable cannot alias a ${t.type} variable`);
+    return { alias: v.alias };
+  }
   if (type === 'color' && !(typeof v === 'string' && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v))) throw new Error('A colour variable takes #RRGGBB or #RRGGBBAA');
   if (type === 'number' && !(typeof v === 'number' && Number.isFinite(v))) throw new Error('A number variable takes a number');
   if (type === 'string' && typeof v !== 'string') throw new Error('A string variable takes text');
@@ -63,7 +68,7 @@ register(
       const c = V.collections[p.collection];
       if (!c) throw new Error(`No collection ${p.collection}`);
       const id = p.id || 'v' + uid();
-      const val = checkValue(p.type, p.value);
+      const val = checkValue(p.type, p.value, V);
       V.vars[id] = { name: p.name, collection: p.collection, type: p.type, values: Object.fromEntries(c.modes.map((m) => [m.id, val])) };
       return { value: id };
     },
@@ -77,7 +82,7 @@ register(
       const v = V.vars[p.id];
       if (!v) throw new Error(`No variable ${p.id}`);
       if (p.value && p.value.alias === p.id) throw new Error('A variable cannot alias itself');
-      V.vars[p.id] = { ...v, values: { ...v.values, [p.mode]: checkValue(v.type, p.value) } };
+      V.vars[p.id] = { ...v, values: { ...v.values, [p.mode]: checkValue(v.type, p.value, V) } };
     },
   },
   {
@@ -184,7 +189,7 @@ register(
       if (!target) throw new Error(`No page ${p.id}`);
       savePage(tx);
       tx.doc.page = p.id;
-      tx.doc.children = (tx.doc.pages.find((g) => g.id === p.id).children || []).slice();
+      tx.doc.children = (tx.doc.pages.find((g) => g.id === p.id).children || []).filter((id) => tx.get(id));
       return { select: [] };
     },
   },
@@ -214,6 +219,7 @@ register(
     doc(tx, p, env) {
       ensurePages(tx);
       if (p.page === tx.doc.page) return false;
+      if (!tx.doc.pages.some((g) => g.id === p.page)) throw new Error(`No page ${p.page}`);
       const ids = topmost(tx.doc, sel(tx, p, env)).filter((id) => !tx.get(id).parent);
       if (!ids.length) throw new Error('Move top-level layers between pages');
       savePage(tx);
@@ -229,7 +235,8 @@ register(
     doc(tx, p, env) {
       const ids = sel(tx, p, env).filter((id) => tx.get(id).type === 'frame' && !tx.get(id).src);
       if (!ids.length) return false;
-      for (const id of ids) tx.set(id, { grids: p.grids && p.grids.length ? p.grids : undefined });
+      const grids = (p.grids || []).slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(Number(g.count) || 1))), size: Math.max(2, Number(g.size) || 8), gutter: Math.max(0, Number(g.gutter) || 0), margin: Math.max(0, Number(g.margin) || 0) }));
+      for (const id of ids) tx.set(id, { grids: grids.length ? grids : undefined });
     },
   },
 );
