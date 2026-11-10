@@ -4,11 +4,13 @@ import { register } from './registry.js';
 import { makeNode, topmost, isSelfOrAncestor, cloneSubtree, uid, hasLayout, isContainer, descendants, TYPES } from './doc.js';
 import { worldMatrix, inv, apply, mul, localMatrix, corners, boxOfPoints, IDENT, worldBox, round2 } from './geom.js';
 import { setGeometry, DEFAULT_LAYOUT } from './layout.js';
-import { writeOverride, ROOT_KEYS, variantSetOf, findVariant, parseVariantName, remapOverrides } from './components.js';
+import { writeOverride, ROOT_KEYS, variantSetOf, findVariant, parseVariantName, remapOverrides, wouldCycle } from './components.js';
 import { TEXT_KEYS } from './styles.js';
 import { shiftRuns, styleRange } from './text.js';
+import { cleanPaint, cleanEffects, cleanStyle, isFontFamily } from './sanitize.js';
 
 const GEOM = new Set(['x', 'y', 'w', 'h', 'rotation']);
+const STRUCTURE = new Set(['id', 'type', 'parent', 'children', 'mainId', 'src', 'root', 'overrides', 'component', 'variant', 'variantSet', 'props', 'propValues', 'bind', 'modes', 'proto', 'runs', 'd', 'vw', 'vh', 'op']);
 const sel = (tx, p, env) => (p.ids ?? env.selection ?? []).filter((id) => tx.get(id));
 const ids$ = { type: 'array', desc: 'Node ids; defaults to the current selection' };
 const pm = (tx, pid) => (pid ? worldMatrix(tx.doc, pid) : IDENT);
@@ -113,6 +115,8 @@ register(
     doc(tx, p, env) {
       const ids = sel(tx, p, env);
       if (!ids.length) return false;
+      const bad = Object.keys(p.props).filter((k) => STRUCTURE.has(k));
+      if (bad.length) throw new Error(`node.set cannot change ${bad.join(', ')}; use the command for that`);
       for (const id of ids) {
         const n = tx.get(id);
         const geom = {}, rest = {};
@@ -124,6 +128,9 @@ register(
           tx.set(id, { bind: Object.keys(b).length ? b : undefined });
         }
         if (Object.keys(geom).length) setGeometry(tx, id, geom);
+        for (const k of ['fill', 'stroke']) if (k in rest) rest[k] = cleanPaint(rest[k]) ?? null;
+        if ('effects' in rest) rest.effects = cleanEffects(rest.effects);
+        if ('fontFamily' in rest && !isFontFamily(rest.fontFamily)) throw new Error('fontFamily may hold letters, digits, spaces and hyphens only');
         if (Object.keys(rest).length) writeProps(tx, id, rest);
       }
     },
@@ -441,9 +448,7 @@ register(
       const len = String(n.text).length;
       const a = Math.max(0, Math.min(len, Math.floor(p.start))), b = Math.max(a, Math.min(len, Math.floor(p.end)));
       if (a === b) return false;
-      const allowed = ['fontWeight', 'fontSize', 'italic', 'fill', 'decoration'];
-      const patch = Object.fromEntries(Object.entries(p.style).filter(([k]) => allowed.includes(k)));
-      if (patch.fill != null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(patch.fill)) throw new Error('fill must be #RRGGBB');
+      const patch = cleanRunStyle(p.style);
       const runs = styleRange(n.runs, a, b, patch);
       if (n.src) writeOverride(tx, p.id, { runs }); else tx.set(p.id, { runs: runs.length ? runs : undefined });
     },
@@ -454,6 +459,20 @@ register(
     doc(tx, p) { tx.doc.name = p.name.trim() || 'Untitled'; },
   },
 );
+
+// Style-run values are checked, not only their keys: they reach exported SVG and CSS.
+export function cleanRunStyle(style) {
+  const out = {};
+  for (const [k, v] of Object.entries(style || {})) {
+    if (v === null) { out[k] = null; continue; }
+    if (k === 'fontWeight') { if (!Number.isFinite(v) || v < 1 || v > 1000) throw new Error('fontWeight must be 1 to 1000'); out[k] = Math.round(v); }
+    else if (k === 'fontSize') { if (!Number.isFinite(v) || v <= 0 || v > 2000) throw new Error('fontSize must be above 0 and at most 2000'); out[k] = v; }
+    else if (k === 'italic') { if (typeof v !== 'boolean') throw new Error('italic must be true or false'); out[k] = v; }
+    else if (k === 'decoration') { if (!['underline', 'strike'].includes(v)) throw new Error('decoration must be underline or strike'); out[k] = v; }
+    else if (k === 'fill') { if (!/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) throw new Error('fill must be #RRGGBB'); out[k] = v; }
+  }
+  return out;
+}
 
 function cmdOrder(tx, env, to) {
   const ids = topmost(tx.doc, env.selection || []).filter((id) => !tx.get(id).src);
@@ -503,6 +522,7 @@ register(
       const main = mainId && tx.get(mainId);
       if (!main || !main.component) throw new Error('Select a main component first');
       const parent = p.parent && validTarget(tx, '', p.parent) ? p.parent : null;
+      if (wouldCycle(tx.doc, parent, mainId)) throw new Error('An instance cannot go inside its own main component');
       let x = p.x, y = p.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         const b = worldBox(tx.doc, mainId);
@@ -589,10 +609,10 @@ register(
     params: { type: { type: 'string', required: true, enum: ['color', 'text', 'effect', 'grid'] }, name: { type: 'string', required: true }, value: { type: 'any' }, fontSize: { type: 'number' }, fontFamily: { type: 'string' }, fontWeight: { type: 'number' }, lineHeight: { type: 'number' }, effects: { type: 'array' }, grids: { type: 'array' }, id: { type: 'string' } },
     doc(tx, p) {
       const id = p.id || 's' + uid();
-      if (p.type === 'color') tx.setStyle(id, { type: 'color', name: p.name, value: p.value || '#000000' });
-      else if (p.type === 'grid') tx.setStyle(id, { type: 'grid', name: p.name, grids: p.grids || [{ type: 'columns', count: 12, gutter: 20, margin: 20, color: '#FF000019' }] });
-      else if (p.type === 'effect') tx.setStyle(id, { type: 'effect', name: p.name, effects: p.effects || [{ type: 'drop', x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }] });
-      else tx.setStyle(id, { type: 'text', name: p.name, fontSize: p.fontSize || 16, fontFamily: p.fontFamily || 'Inter', fontWeight: p.fontWeight || 400, lineHeight: p.lineHeight || 1.25 });
+      const made = cleanStyle(p.type === 'color' ? { type: 'color', name: p.name, value: p.value || '#000000' } : p.type === 'effect' ? { type: 'effect', name: p.name, effects: p.effects || [{ type: 'drop', x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }] } : p.type === 'grid' ? { type: 'grid', name: p.name, grids: p.grids || [{ type: 'columns', count: 12, gutter: 20, margin: 20, color: '#FF000019' }] } : { type: 'text', name: p.name, fontSize: p.fontSize, fontFamily: p.fontFamily, fontWeight: p.fontWeight, lineHeight: p.lineHeight });
+      if (!made) throw new Error('That style value is not valid');
+      if (made.type === 'text' && p.fontFamily && !isFontFamily(p.fontFamily)) throw new Error('fontFamily may hold letters, digits, spaces and hyphens only');
+      tx.setStyle(id, made);
       return { value: id };
     },
   },
@@ -636,7 +656,9 @@ register(
       if (!s) throw new Error(`No style ${p.id}`);
       const patch = { ...p.patch };
       delete patch.type;
-      tx.setStyle(p.id, { ...s, ...patch });
+      const next = cleanStyle({ ...s, ...patch });
+      if (!next) throw new Error('That style value is not valid');
+      tx.setStyle(p.id, next);
     },
   },
   {

@@ -158,6 +158,7 @@ export function nodeCount(doc) { return Object.keys(doc.nodes).length; }
 
 // Documents are untrusted (a .figger.json, a paste or an agent call can come from anywhere), so loading
 // sanitises them: structure, ids, numbers, the keys variables may drive, image data and page lists.
+import { cleanPaint, cleanEffects, cleanRuns, cleanStyle, isFontFamily } from './sanitize.js';
 export const IMAGE_MIME = /^image\/(png|jpeg|gif|webp|avif)$/; // no SVG images: they can carry script
 export const isBase64 = (s) => typeof s === 'string' && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
 const BIND_KEYS = new Set(['fill', 'stroke', 'w', 'h', 'opacity', 'radius', 'strokeWidth', 'fontSize', 'gap', 'padding', 'text', 'name', 'visible']);
@@ -183,13 +184,31 @@ export function validateDoc(d) {
     if (n.grids) n.grids = Array.isArray(n.grids) ? n.grids.slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(finite(g.count, 1)))), size: Math.max(2, finite(g.size, 8)), gutter: Math.max(0, finite(g.gutter)), margin: Math.max(0, finite(g.margin)) })) : undefined;
     if (n.children !== undefined) n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === 'string') : [];
     if (typeof n.text !== 'undefined') n.text = String(n.text);
+    for (const k of ['fill', 'stroke']) if (k in n) n[k] = cleanPaint(n[k]) ?? null;
+    if ('effects' in n) n.effects = cleanEffects(n.effects);
+    if ('runs' in n) n.runs = cleanRuns(n.runs, n.text ? n.text.length : 0);
+    if ('fontFamily' in n && !isFontFamily(n.fontFamily)) n.fontFamily = 'Inter';
+    if (n.children && !['frame', 'instance', 'boolean'].includes(n.type)) delete n.children;
+    if (n.overrides && typeof n.overrides !== 'object') delete n.overrides;
     nodes[id] = n;
   }
-  // Drop child references to missing nodes, and parents that do not list their child.
+  // Drop child references to missing nodes; a layer listed by two parents, or a cycle, is an error.
   for (const n of Object.values(nodes)) if (n.children) n.children = n.children.filter((c) => nodes[c]);
+  const owner = new Map();
+  for (const n of Object.values(nodes)) for (const c of n.children || []) {
+    if (owner.has(c) || c === n.id) throw new Error(`Layer ${c} has two parents or contains itself`);
+    owner.set(c, n.id);
+  }
+  for (const n of Object.values(nodes)) n.parent = owner.get(n.id) ?? null;
+  for (const start of Object.keys(nodes)) {
+    const seen = new Set();
+    for (let id = start; id; id = owner.get(id)) { if (seen.has(id)) throw new Error(`Layer ${start} is inside itself`); seen.add(id); }
+  }
   const assets = {};
   for (const [id, a] of Object.entries(d.assets || {})) if (a && IMAGE_MIME.test(a.mime) && isBase64(a.data)) assets[id] = { mime: a.mime, data: a.data, name: String(a.name || id), w: finite(a.w), h: finite(a.h) };
-  const out = { version: FORMAT_VERSION, name: String(d.name || 'Untitled'), children: d.children.filter((c) => nodes[c]), nodes, styles: d.styles && typeof d.styles === 'object' ? d.styles : {}, assets };
+  const styles = {};
+  for (const [id, st] of Object.entries(d.styles && typeof d.styles === 'object' ? d.styles : {})) { const c = cleanStyle(st); if (c) styles[id] = c; }
+  const out = { version: FORMAT_VERSION, name: String(d.name || 'Untitled'), children: d.children.filter((c) => nodes[c] && !owner.has(c)), nodes, styles, assets };
   if (Array.isArray(d.pages) && d.pages.length) {
     out.pages = d.pages.filter((g) => g && typeof g.id === 'string').map((g) => ({ id: g.id, name: String(g.name || 'Page'), children: (Array.isArray(g.children) ? g.children : []).filter((c) => nodes[c]) }));
     // The open page must be one of the pages; its list is doc.children.
@@ -198,7 +217,12 @@ export function validateDoc(d) {
     else if (out.pages.length) { out.page = out.pages[0].id; out.children = out.pages[0].children.slice(); }
     if (!out.pages.length) delete out.pages;
   }
-  if (d.variables && typeof d.variables === 'object') out.variables = { collections: d.variables.collections || {}, vars: d.variables.vars || {} };
+  if (d.variables && typeof d.variables === 'object') {
+    const collections = {}, vars = {};
+    for (const [cid, c] of Object.entries(d.variables.collections || {})) if (c && Array.isArray(c.modes) && c.modes.length) collections[cid] = { name: String(c.name || 'Collection'), modes: c.modes.filter((m) => m && typeof m.id === 'string').map((m) => ({ id: m.id, name: String(m.name || 'Mode') })) };
+    for (const [vid, v] of Object.entries(d.variables.vars || {})) if (v && collections[v.collection] && ['color', 'number', 'string', 'boolean'].includes(v.type) && v.values && typeof v.values === 'object') vars[vid] = { name: String(v.name || vid), collection: v.collection, type: v.type, values: { ...v.values } };
+    out.variables = { collections, vars };
+  }
   if (typeof d.flowStart === 'string' && nodes[d.flowStart]) out.flowStart = d.flowStart;
   return out;
 }

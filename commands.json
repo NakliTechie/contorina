@@ -39,7 +39,7 @@
     },
     {
       "name": "edit.write",
-      "description": "Figger edit (write). Pass command and params; commands: node.set (Set layer properties), node.move (Move layers), node.nudge (Nudge selection), node.reparent (Move layers into), node.rename (Rename layer), edit.duplicate (Duplicate), node.insertTree (Insert layers), node.setVisible (Show or hide layers), node.setLocked (Lock or unlock layers), vector.setPath (Edit vector path), edit.undo (Undo), edit.redo (Redo). Call help.read for a command's parameters.",
+      "description": "Figger edit (write). Pass command and params; commands: node.set (Set layer properties), node.move (Move layers), node.nudge (Nudge selection), node.reparent (Move layers into), node.rename (Rename layer), edit.duplicate (Duplicate), node.insertTree (Insert layers), node.setVisible (Show or hide layers), node.setLocked (Lock or unlock layers), vector.setPath (Edit vector path). Call help.read for a command's parameters.",
       "scope": "write",
       "input": {
         "type": "object",
@@ -56,9 +56,7 @@
               "node.insertTree",
               "node.setVisible",
               "node.setLocked",
-              "vector.setPath",
-              "edit.undo",
-              "edit.redo"
+              "vector.setPath"
             ],
             "description": "Which Figger command to run"
           },

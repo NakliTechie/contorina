@@ -97,6 +97,7 @@ app.redraw = () => notify('overlay');
 app.confirm = confirmDialog;
 app.storageLabel = () => (store ? store.label() : '…');
 app.liveNode = (id) => state.doc.nodes[id];
+app.toast = toast;
 
 // ---- app commands -----------------------------------------------------------------------------------
 let clip = null;
@@ -124,8 +125,8 @@ function copyTree(ids) {
 }
 
 register(
-  { id: 'edit.undo', label: 'Undo', group: 'Edit', keys: ['Mod+Z'], scope: 'write', run: () => { const l = undo(); if (l) toast(`Undo ${l}`); saver?.markDirty(); return !!l; } },
-  { id: 'edit.redo', label: 'Redo', group: 'Edit', keys: ['Shift+Mod+Z', 'Mod+Y'], scope: 'write', run: () => { const l = redo(); if (l) toast(`Redo ${l}`); saver?.markDirty(); return !!l; } },
+  { id: 'edit.undo', label: 'Undo', group: 'Edit', keys: ['Mod+Z'], scope: 'write', noRail: true, run: () => { const l = undo(); if (l) toast(`Undo ${l}`); saver?.markDirty(); return !!l; } },
+  { id: 'edit.redo', label: 'Redo', group: 'Edit', keys: ['Shift+Mod+Z', 'Mod+Y'], scope: 'write', noRail: true, run: () => { const l = redo(); if (l) toast(`Redo ${l}`); saver?.markDirty(); return !!l; } },
   { id: 'select.set', label: 'Select layers', group: 'Select', hidden: true, params: { ids: { type: 'array', required: true } }, run: (p) => { setSelection(p.ids); return state.selection.slice(); } },
   { id: 'select.all', label: 'Select all', group: 'Select', keys: ['Mod+A'], run: () => {
     const s = state.selection[0] && state.doc.nodes[state.selection[0]];
@@ -203,7 +204,7 @@ register(
     params: { ids: { type: 'array' }, download: { type: 'boolean' } },
     run: (p, e, o) => {
       const svg = toSVG(state.doc, selOrAll(p));
-      if (p.download || (o && o.source !== 'agent' && p.download !== false)) download(new Blob([svg], { type: 'image/svg+xml' }), safeName(state.doc.name).replace(EXT, '.svg'));
+      if (!(o && o.source === 'agent') && p.download !== false) download(new Blob([svg], { type: 'image/svg+xml' }), safeName(state.doc.name).replace(EXT, '.svg'));
       return svg;
     },
   },
@@ -213,7 +214,7 @@ register(
     params: { ids: { type: 'array' }, scale: { type: 'number' }, download: { type: 'boolean' } },
     run: async (p, e, o) => {
       const blob = await toPNG(state.doc, selOrAll(p), p.scale || 2);
-      if (p.download || (o && o.source !== 'agent' && p.download !== false)) { download(blob, safeName(state.doc.name).replace(EXT, '.png')); return { bytes: blob.size }; }
+      if (!(o && o.source === 'agent') && p.download !== false) { download(blob, safeName(state.doc.name).replace(EXT, '.png')); return { bytes: blob.size }; }
       return await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
     },
   },
@@ -223,7 +224,7 @@ register(
     params: { ids: { type: 'array' }, scale: { type: 'number' }, quality: { type: 'number' }, download: { type: 'boolean' } },
     run: async (p, e, o) => {
       const blob = await toRaster(state.doc, selOrAll(p), { scale: p.scale || 2, type, quality: p.quality ?? 0.9 });
-      if (p.download || (o && o.source !== 'agent' && p.download !== false)) { download(blob, safeName(state.doc.name).replace(EXT, '.' + ext)); return { bytes: blob.size }; }
+      if (!(o && o.source === 'agent') && p.download !== false) { download(blob, safeName(state.doc.name).replace(EXT, '.' + ext)); return { bytes: blob.size }; }
       return await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
     },
   })),
@@ -235,7 +236,7 @@ register(
       const ids = selOrAll(p);
       const images = await jpegAssets(state.doc, ids);
       const bytes = toPDF(state.doc, ids, { images });
-      if (p.download || (o && o.source !== 'agent' && p.download !== false)) { download(new Blob([bytes], { type: 'application/pdf' }), safeName(state.doc.name).replace(EXT, '.pdf')); return { bytes: bytes.length }; }
+      if (!(o && o.source === 'agent') && p.download !== false) { download(new Blob([bytes], { type: 'application/pdf' }), safeName(state.doc.name).replace(EXT, '.pdf')); return { bytes: bytes.length }; }
       let bin = '';
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
       return btoa(bin);

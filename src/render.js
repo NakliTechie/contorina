@@ -214,7 +214,7 @@ function strokePaint(ctx, p, n) {
   const stops = (g) => { for (const s of p.stops || []) { try { g.addColorStop(Math.min(1, Math.max(0, s.pos)), s.color); } catch {} } return g; };
   const w = n.w || 1, h = n.h || 1;
   if (p.type === 'linear') {
-    const a = ((p.angle ?? 90) * Math.PI) / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+    const a = ((Number.isFinite(+p.angle) ? +p.angle : 90) * Math.PI) / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
     return stops(ctx.createLinearGradient((0.5 - dx) * w, (0.5 - dy) * h, (0.5 + dx) * w, (0.5 + dy) * h));
   }
   if (p.type === 'radial' || p.type === 'diamond') return stops(ctx.createRadialGradient((p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h, 0, (p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h, (p.r ?? 0.5) * Math.max(w, h)));

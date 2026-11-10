@@ -13,7 +13,7 @@ export function syncInstances(tx) {
   const nodes = tx.doc.nodes;
   for (const id of Object.keys(nodes)) {
     const n = nodes[id];
-    if (n && n.type === 'instance' && !n.src) materialize(tx, id, 0);
+    if (n && n.type === 'instance' && !n.src) materialize(tx, id, 0, new Set(ancestorMains(tx, id)));
   }
 }
 
@@ -23,10 +23,27 @@ function collect(tx, id, out) {
   return out;
 }
 
-export function materialize(tx, instId, depth) {
+// Mains that enclose a layer: an instance inside one of them must not expand it (that would recurse).
+function ancestorMains(tx, id) {
+  const out = [];
+  for (let n = tx.get(id); n; n = n.parent ? tx.get(n.parent) : null) if (n.component) out.push(n.id);
+  return out;
+}
+export function wouldCycle(doc, instParentId, mainId) {
+  for (let n = instParentId ? doc.nodes[instParentId] : null; n; n = n.parent ? doc.nodes[n.parent] : null) if (n.id === mainId) return true;
+  return false;
+}
+
+export function materialize(tx, instId, depth, expanding = new Set()) {
   const inst = tx.get(instId);
   const main = tx.get(inst.mainId);
   if (!main || !main.component || depth > 8) return;
+  if (expanding.has(main.id)) {
+    // A cycle (an instance of a main inside that same main): show it empty instead of recursing.
+    if (inst.children && inst.children.length) { for (const c of collect(tx, instId, new Set())) delete tx.doc.nodes[c]; tx.set(instId, { children: [] }); }
+    return;
+  }
+  const inner = new Set(expanding).add(main.id);
   const stale = collect(tx, instId, new Set());
   const ov = inst.overrides || {};
   const nested = [];
@@ -64,7 +81,7 @@ export function materialize(tx, instId, depth) {
   for (const k of ROOT_KEYS) rootPatch[k] = k in rootOv ? rootOv[k] : main[k];
   if (!inst.sizing && main.sizing) rootPatch.sizing = main.sizing;
   tx.set(instId, rootPatch);
-  for (const id of nested) materialize(tx, id, depth + 1);
+  for (const id of nested) materialize(tx, id, depth + 1, inner);
   const cur = tx.get(instId);
   // Children sit where the main has them; move them by their constraints to the instance size.
   if (!hasLayout(cur) && (cur.w !== main.w || cur.h !== main.h)) applyConstraints(tx, instId, main.w, main.h);

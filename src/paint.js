@@ -13,7 +13,7 @@ export const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken',
 export function paints(v) {
   if (v == null || v === '') return [];
   const list = Array.isArray(v) ? v : [v];
-  return list.filter(Boolean).map((p) => (typeof p === 'string' ? { type: 'solid', color: p } : p)).filter((p) => p.visible !== false);
+  return list.map((p) => (typeof p === 'string' ? { type: 'solid', color: p } : p)).filter((p) => p && typeof p === 'object' && PAINT_TYPES.includes(p.type) && p.visible !== false);
 }
 // A single display colour (first solid, else first gradient stop), for swatches and fallbacks.
 export function firstColor(v) {
@@ -103,7 +103,7 @@ export function fillPaints(ctx, v, w, h, doc, path) {
       ctx.transform(w || 1, 0, 0, h || 1, 0, 0);
       let g;
       if (p.type === 'linear') {
-        const a = ((p.angle ?? 90) * Math.PI) / 180;
+        const a = ((Number.isFinite(+p.angle) ? +p.angle : 90) * Math.PI) / 180;
         const dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
         g = ctx.createLinearGradient(0.5 - dx, 0.5 - dy, 0.5 + dx, 0.5 + dy);
       } else if (p.type === 'radial') g = ctx.createRadialGradient(p.cx ?? 0.5, p.cy ?? 0.5, 0, p.cx ?? 0.5, p.cy ?? 0.5, p.r ?? 0.5);

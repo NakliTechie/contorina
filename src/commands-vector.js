@@ -2,7 +2,7 @@
 import polygonClipping from 'polygon-clipping';
 import { register, get } from './registry.js';
 import { makeNode, topmost, uid, IMAGE_MIME, isBase64 } from './doc.js';
-import { worldMatrix, inv, IDENT, round2 } from './geom.js';
+import { worldMatrix, inv, IDENT, round2, apply } from './geom.js';
 import { outlineD, outlineInParent, transformD, parsePath, flatten, fitVector, serialize, polygonD } from './vector.js';
 import { firstColor } from './paint.js';
 
@@ -155,6 +155,14 @@ register(
       const index = order.indexOf(ids[ids.length - 1]) - ids.length + 1;
       const g = makeNode('boolean', { ...keep(base), name: { union: 'Union', subtract: 'Subtract', intersect: 'Intersect', exclude: 'Exclude' }[p.op], op: p.op, x: 0, y: 0, w: 1, h: 1 });
       if (!g.fill && !g.stroke) g.fill = '#D9D9D9';
+      // Operands from other frames keep their place on screen: re-express their centre in this parent.
+      const toParent = inv(pm(tx, parent));
+      for (const id of ids) {
+        const n = tx.get(id);
+        if (n.parent === parent) continue;
+        const c = apply(toParent, apply(worldMatrix(tx.doc, id), { x: n.w / 2, y: n.h / 2 }));
+        tx.set(id, { x: round2(c.x - n.w / 2), y: round2(c.y - n.h / 2) });
+      }
       for (const id of ids) tx.detach(id);
       tx.add(g, parent, Math.max(0, index));
       // Children keep their parent coordinates; syncBooleans then moves the box onto the result.
@@ -180,9 +188,14 @@ register(
 // Live booleans: the layer's outline is the operation applied to its children, recomputed on every
 // edit; children stay editable, and the box follows the result (children shift to stay in place).
 export function syncBooleans(tx) {
-  for (const id of Object.keys(tx.doc.nodes)) {
+  // Deepest first, so a boolean inside another is current before the outer one reads it; and only
+  // booleans whose own layer or operands changed in this edit (tx.own), so unrelated edits stay fast.
+  const depth = (id) => { let d = 0; for (let n = tx.get(id); n && n.parent; n = tx.get(n.parent)) d++; return d; };
+  const touched = (id) => { if (tx.own.has(id)) return true; for (const c of tx.get(id).children || []) if (touched(c)) return true; return false; };
+  const list = Object.keys(tx.doc.nodes).filter((id) => tx.get(id).type === 'boolean').sort((a, b) => depth(b) - depth(a));
+  for (const id of list) {
     const n = tx.get(id);
-    if (!n || n.type !== 'boolean' || !n.children || !n.children.length) continue;
+    if (!n || !n.children || !n.children.length || (n.d && !touched(id))) continue;
     const kids = n.children.filter((c) => tx.get(c) && tx.get(c).visible !== false);
     const gs = kids.map((c) => {
       const rs = flatten(parsePath(outlineInParent(tx.get(c))), 0.2).filter((r) => r.pts.length > 2).map((r) => [...r.pts.map(([x, y]) => [x, y]), r.pts[0]]);

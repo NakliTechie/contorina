@@ -13,7 +13,8 @@ export function strokeOf(n, styles) {
 }
 export function effectsOf(n, styles) {
   const s = n.effectStyle && styles[n.effectStyle];
-  return s ? s.effects || [] : n.effects || [];
+  const list = s ? s.effects : n.effects;
+  return Array.isArray(list) ? list.filter((e) => e && typeof e === 'object' && typeof e.type === 'string') : [];
 }
 export function gridsOf(n, styles) {
   const s = n.gridStyle && styles[n.gridStyle];

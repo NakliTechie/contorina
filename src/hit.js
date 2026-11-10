@@ -23,7 +23,8 @@ function hitNode(doc, id, p, parentM, tol, exclude) {
   const m = mul(parentM, localMatrix(n));
   const q = apply(inv(m), p);
   const inside = q.x >= -tol && q.y >= -tol && q.x <= n.w + tol && q.y <= n.h + tol;
-  if (n.children && n.children.length && (inside || n.clip === false)) {
+  // A live boolean is hit by its drawn outline only, never by its operands.
+  if (n.children && n.children.length && n.type !== 'boolean' && (inside || n.clip === false)) {
     for (let i = n.children.length - 1; i >= 0; i--) {
       const c = hitNode(doc, n.children[i], p, m, tol, exclude);
       if (c) return n.locked ? null : [id, ...c];

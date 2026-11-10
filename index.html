@@ -3575,6 +3575,97 @@ pre.code.small { max-height: 40vh; margin: 0; }
     return k.replace("Mod", isMac ? "⌘" : "Ctrl").replace("Shift", isMac ? "⇧" : "Shift").replace("Alt", isMac ? "⌥" : "Alt").replace(/\+/g, isMac ? "" : "+");
   }
 
+  // src/sanitize.js
+  var HEX = /^#([0-9a-f]{6}|[0-9a-f]{8})$/i;
+  var COLOR = /^(#([0-9a-f]{3,8})|rgba?\(\s*[\d.\s,%/]+\))$/i;
+  var num = (v, d, lo = -Infinity, hi = Infinity) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d;
+  };
+  var BLENDS = /* @__PURE__ */ new Set(["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity"]);
+  function cleanStops(stops) {
+    const out = (Array.isArray(stops) ? stops : []).filter((s) => s && typeof s.color === "string" && COLOR.test(s.color)).slice(0, 32).map((s) => ({ pos: num(s.pos, 0, 0, 1), color: s.color }));
+    return out.length ? out : [{ pos: 0, color: "#000000" }, { pos: 1, color: "#FFFFFF" }];
+  }
+  function cleanOnePaint(p) {
+    if (typeof p === "string") return COLOR.test(p) ? p : null;
+    if (!p || typeof p !== "object") return null;
+    const base = {};
+    if (p.opacity != null) base.opacity = num(p.opacity, 1, 0, 1);
+    if (p.blend && BLENDS.has(p.blend)) base.blend = p.blend;
+    if (p.visible === false) base.visible = false;
+    switch (p.type) {
+      case "solid":
+        return typeof p.color === "string" && COLOR.test(p.color) ? { type: "solid", color: p.color, ...base } : null;
+      case "linear":
+        return { type: "linear", angle: num(p.angle, 90, -3600, 3600), stops: cleanStops(p.stops), ...base };
+      case "radial":
+      case "diamond":
+        return { type: p.type, cx: num(p.cx, 0.5, -10, 10), cy: num(p.cy, 0.5, -10, 10), r: num(p.r, 0.5, 0, 50), stops: cleanStops(p.stops), ...base };
+      case "angular":
+        return { type: "angular", cx: num(p.cx, 0.5, -10, 10), cy: num(p.cy, 0.5, -10, 10), angle: num(p.angle, 0, -3600, 3600), stops: cleanStops(p.stops), ...base };
+      case "image":
+        return typeof p.asset === "string" ? { type: "image", asset: p.asset, mode: ["fill", "fit", "crop", "tile"].includes(p.mode) ? p.mode : "fill", ...p.scale != null ? { scale: num(p.scale, 1, 0.01, 100) } : {}, ...p.ox != null ? { ox: num(p.ox, 0, -10, 10) } : {}, ...p.oy != null ? { oy: num(p.oy, 0, -10, 10) } : {}, ...base } : null;
+      default:
+        return null;
+    }
+  }
+  function cleanPaint(v) {
+    if (v == null) return v;
+    if (Array.isArray(v)) {
+      const out = v.map(cleanOnePaint).filter((x) => x != null).slice(0, 16);
+      return out.length ? out : null;
+    }
+    return cleanOnePaint(v);
+  }
+  function cleanEffects(list) {
+    if (list == null) return list;
+    if (!Array.isArray(list)) return [];
+    const out = [];
+    for (const e of list.slice(0, 16)) {
+      if (!e || typeof e !== "object") continue;
+      const vis = e.visible === false ? { visible: false } : {};
+      const color = typeof e.color === "string" && COLOR.test(e.color) ? e.color : "#00000040";
+      if (e.type === "drop" || e.type === "inner") out.push({ type: e.type, x: num(e.x, 0, -1e4, 1e4), y: num(e.y, 0, -1e4, 1e4), blur: num(e.blur, 0, 0, 1e3), ...e.type === "drop" ? { spread: num(e.spread, 0, -1e3, 1e3) } : {}, color, ...vis });
+      else if (e.type === "blur" || e.type === "bgblur") out.push({ type: e.type, radius: num(e.radius, 0, 0, 1e3), ...vis });
+      else if (e.type === "glass") out.push({ type: "glass", radius: num(e.radius, 16, 0, 1e3), tint: num(e.tint, 0.15, 0, 1), highlight: num(e.highlight, 0.6, 0, 1), ...vis });
+      else if (e.type === "noise") out.push({ type: "noise", amount: num(e.amount, 0.15, 0, 1), size: Math.round(num(e.size, 1, 1, 16)), ...e.mono === false ? { mono: false } : {}, ...vis });
+    }
+    return out;
+  }
+  function cleanRuns(runs, textLength) {
+    if (runs == null) return runs;
+    if (!Array.isArray(runs)) return void 0;
+    const out = [];
+    for (const r of runs.slice(0, 2e3)) {
+      if (!r || typeof r !== "object" || !r.style || typeof r.style !== "object") continue;
+      const start = Math.max(0, Math.min(textLength, Math.floor(num(r.start, 0)))), end = Math.max(start, Math.min(textLength, Math.floor(num(r.end, 0))));
+      if (end <= start) continue;
+      const st = {};
+      const s = r.style;
+      if (s.fontWeight != null) st.fontWeight = Math.round(num(s.fontWeight, 400, 1, 1e3));
+      if (s.fontSize != null) st.fontSize = num(s.fontSize, 16, 0.5, 2e3);
+      if (s.italic === true) st.italic = true;
+      if (s.decoration === "underline" || s.decoration === "strike") st.decoration = s.decoration;
+      if (typeof s.fill === "string" && HEX.test(s.fill)) st.fill = s.fill;
+      if (Object.keys(st).length) out.push({ start, end, style: st });
+    }
+    return out.length ? out : void 0;
+  }
+  function cleanStyle(s) {
+    if (!s || typeof s !== "object") return null;
+    const name = String(s.name || "Style").slice(0, 200);
+    if (s.type === "color") {
+      const value = cleanPaint(s.value);
+      return value == null ? null : { type: "color", name, value };
+    }
+    if (s.type === "text") return { type: "text", name, fontSize: num(s.fontSize, 16, 0.5, 2e3), fontFamily: typeof s.fontFamily === "string" ? s.fontFamily.slice(0, 100) : "Inter", fontWeight: Math.round(num(s.fontWeight, 400, 1, 1e3)), lineHeight: num(s.lineHeight, 1.25, 0.1, 10) };
+    if (s.type === "effect") return { type: "effect", name, effects: cleanEffects(s.effects) || [] };
+    if (s.type === "grid") return { type: "grid", name, grids: (Array.isArray(s.grids) ? s.grids : []).filter((g) => g && typeof g === "object").slice(0, 8).map((g) => ({ type: ["columns", "rows", "grid"].includes(g.type) ? g.type : "columns", count: Math.round(num(g.count, 12, 1, 200)), gutter: num(g.gutter, 20, 0, 1e4), margin: num(g.margin, 20, 0, 1e4), size: num(g.size, 8, 2, 1e4), ...typeof g.color === "string" && COLOR.test(g.color) ? { color: g.color } : {} })) };
+    return null;
+  }
+  var isFontFamily = (f2) => typeof f2 === "string" && /^[\w \-]{1,100}$/.test(f2);
+
   // src/doc.js
   var FORMAT_VERSION = 1;
   var seq = 0;
@@ -3761,12 +3852,36 @@ pre.code.small { max-height: 40vh; margin: 0; }
       if (n.grids) n.grids = Array.isArray(n.grids) ? n.grids.slice(0, 8).map((g) => ({ ...g, count: Math.max(1, Math.min(200, Math.round(finite(g.count, 1)))), size: Math.max(2, finite(g.size, 8)), gutter: Math.max(0, finite(g.gutter)), margin: Math.max(0, finite(g.margin)) })) : void 0;
       if (n.children !== void 0) n.children = Array.isArray(n.children) ? n.children.filter((c) => typeof c === "string") : [];
       if (typeof n.text !== "undefined") n.text = String(n.text);
+      for (const k of ["fill", "stroke"]) if (k in n) n[k] = cleanPaint(n[k]) ?? null;
+      if ("effects" in n) n.effects = cleanEffects(n.effects);
+      if ("runs" in n) n.runs = cleanRuns(n.runs, n.text ? n.text.length : 0);
+      if ("fontFamily" in n && !isFontFamily(n.fontFamily)) n.fontFamily = "Inter";
+      if (n.children && !["frame", "instance", "boolean"].includes(n.type)) delete n.children;
+      if (n.overrides && typeof n.overrides !== "object") delete n.overrides;
       nodes[id] = n;
     }
     for (const n of Object.values(nodes)) if (n.children) n.children = n.children.filter((c) => nodes[c]);
+    const owner = /* @__PURE__ */ new Map();
+    for (const n of Object.values(nodes)) for (const c of n.children || []) {
+      if (owner.has(c) || c === n.id) throw new Error(`Layer ${c} has two parents or contains itself`);
+      owner.set(c, n.id);
+    }
+    for (const n of Object.values(nodes)) n.parent = owner.get(n.id) ?? null;
+    for (const start of Object.keys(nodes)) {
+      const seen = /* @__PURE__ */ new Set();
+      for (let id = start; id; id = owner.get(id)) {
+        if (seen.has(id)) throw new Error(`Layer ${start} is inside itself`);
+        seen.add(id);
+      }
+    }
     const assets = {};
     for (const [id, a] of Object.entries(d.assets || {})) if (a && IMAGE_MIME.test(a.mime) && isBase64(a.data)) assets[id] = { mime: a.mime, data: a.data, name: String(a.name || id), w: finite(a.w), h: finite(a.h) };
-    const out = { version: FORMAT_VERSION, name: String(d.name || "Untitled"), children: d.children.filter((c) => nodes[c]), nodes, styles: d.styles && typeof d.styles === "object" ? d.styles : {}, assets };
+    const styles = {};
+    for (const [id, st] of Object.entries(d.styles && typeof d.styles === "object" ? d.styles : {})) {
+      const c = cleanStyle(st);
+      if (c) styles[id] = c;
+    }
+    const out = { version: FORMAT_VERSION, name: String(d.name || "Untitled"), children: d.children.filter((c) => nodes[c] && !owner.has(c)), nodes, styles, assets };
     if (Array.isArray(d.pages) && d.pages.length) {
       out.pages = d.pages.filter((g) => g && typeof g.id === "string").map((g) => ({ id: g.id, name: String(g.name || "Page"), children: (Array.isArray(g.children) ? g.children : []).filter((c) => nodes[c]) }));
       const open = out.pages.find((g) => g.id === d.page);
@@ -3777,7 +3892,12 @@ pre.code.small { max-height: 40vh; margin: 0; }
       }
       if (!out.pages.length) delete out.pages;
     }
-    if (d.variables && typeof d.variables === "object") out.variables = { collections: d.variables.collections || {}, vars: d.variables.vars || {} };
+    if (d.variables && typeof d.variables === "object") {
+      const collections = {}, vars2 = {};
+      for (const [cid, c] of Object.entries(d.variables.collections || {})) if (c && Array.isArray(c.modes) && c.modes.length) collections[cid] = { name: String(c.name || "Collection"), modes: c.modes.filter((m) => m && typeof m.id === "string").map((m) => ({ id: m.id, name: String(m.name || "Mode") })) };
+      for (const [vid, v] of Object.entries(d.variables.vars || {})) if (v && collections[v.collection] && ["color", "number", "string", "boolean"].includes(v.type) && v.values && typeof v.values === "object") vars2[vid] = { name: String(v.name || vid), collection: v.collection, type: v.type, values: { ...v.values } };
+      out.variables = { collections, vars: vars2 };
+    }
     if (typeof d.flowStart === "string" && nodes[d.flowStart]) out.flowStart = d.flowStart;
     return out;
   }
@@ -4093,7 +4213,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const nodes = tx.doc.nodes;
     for (const id of Object.keys(nodes)) {
       const n = nodes[id];
-      if (n && n.type === "instance" && !n.src) materialize(tx, id, 0);
+      if (n && n.type === "instance" && !n.src) materialize(tx, id, 0, new Set(ancestorMains(tx, id)));
     }
   }
   function collect(tx, id, out) {
@@ -4104,10 +4224,27 @@ pre.code.small { max-height: 40vh; margin: 0; }
     }
     return out;
   }
-  function materialize(tx, instId, depth) {
+  function ancestorMains(tx, id) {
+    const out = [];
+    for (let n = tx.get(id); n; n = n.parent ? tx.get(n.parent) : null) if (n.component) out.push(n.id);
+    return out;
+  }
+  function wouldCycle(doc, instParentId, mainId) {
+    for (let n = instParentId ? doc.nodes[instParentId] : null; n; n = n.parent ? doc.nodes[n.parent] : null) if (n.id === mainId) return true;
+    return false;
+  }
+  function materialize(tx, instId, depth, expanding = /* @__PURE__ */ new Set()) {
     const inst = tx.get(instId);
     const main = tx.get(inst.mainId);
     if (!main || !main.component || depth > 8) return;
+    if (expanding.has(main.id)) {
+      if (inst.children && inst.children.length) {
+        for (const c of collect(tx, instId, /* @__PURE__ */ new Set())) delete tx.doc.nodes[c];
+        tx.set(instId, { children: [] });
+      }
+      return;
+    }
+    const inner = new Set(expanding).add(main.id);
     const stale = collect(tx, instId, /* @__PURE__ */ new Set());
     const ov = inst.overrides || {};
     const nested = [];
@@ -4150,7 +4287,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     for (const k of ROOT_KEYS) rootPatch[k] = k in rootOv ? rootOv[k] : main[k];
     if (!inst.sizing && main.sizing) rootPatch.sizing = main.sizing;
     tx.set(instId, rootPatch);
-    for (const id of nested) materialize(tx, id, depth + 1);
+    for (const id of nested) materialize(tx, id, depth + 1, inner);
     const cur = tx.get(instId);
     if (!hasLayout(cur) && (cur.w !== main.w || cur.h !== main.h)) applyConstraints(tx, instId, main.w, main.h);
   }
@@ -4262,7 +4399,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
   }
   function effectsOf(n, styles) {
     const s = n.effectStyle && styles[n.effectStyle];
-    return s ? s.effects || [] : n.effects || [];
+    const list = s ? s.effects : n.effects;
+    return Array.isArray(list) ? list.filter((e) => e && typeof e === "object" && typeof e.type === "string") : [];
   }
   function gridsOf(n, styles) {
     const s = n.gridStyle && styles[n.gridStyle];
@@ -4491,6 +4629,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
 
   // src/commands.js
   var GEOM = /* @__PURE__ */ new Set(["x", "y", "w", "h", "rotation"]);
+  var STRUCTURE = /* @__PURE__ */ new Set(["id", "type", "parent", "children", "mainId", "src", "root", "overrides", "component", "variant", "variantSet", "props", "propValues", "bind", "modes", "proto", "runs", "d", "vw", "vh", "op"]);
   var sel = (tx, p, env2) => (p.ids ?? env2.selection ?? []).filter((id) => tx.get(id));
   var ids$ = { type: "array", desc: "Node ids; defaults to the current selection" };
   var pm = (tx, pid) => pid ? worldMatrix(tx.doc, pid) : IDENT;
@@ -4606,6 +4745,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       doc(tx, p, env2) {
         const ids = sel(tx, p, env2);
         if (!ids.length) return false;
+        const bad = Object.keys(p.props).filter((k) => STRUCTURE.has(k));
+        if (bad.length) throw new Error(`node.set cannot change ${bad.join(", ")}; use the command for that`);
         for (const id of ids) {
           const n = tx.get(id);
           const geom2 = {}, rest = {};
@@ -4619,6 +4760,9 @@ pre.code.small { max-height: 40vh; margin: 0; }
             tx.set(id, { bind: Object.keys(b).length ? b : void 0 });
           }
           if (Object.keys(geom2).length) setGeometry(tx, id, geom2);
+          for (const k of ["fill", "stroke"]) if (k in rest) rest[k] = cleanPaint(rest[k]) ?? null;
+          if ("effects" in rest) rest.effects = cleanEffects(rest.effects);
+          if ("fontFamily" in rest && !isFontFamily(rest.fontFamily)) throw new Error("fontFamily may hold letters, digits, spaces and hyphens only");
           if (Object.keys(rest).length) writeProps(tx, id, rest);
         }
       }
@@ -5013,9 +5157,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const len2 = String(n.text).length;
         const a = Math.max(0, Math.min(len2, Math.floor(p.start))), b = Math.max(a, Math.min(len2, Math.floor(p.end)));
         if (a === b) return false;
-        const allowed = ["fontWeight", "fontSize", "italic", "fill", "decoration"];
-        const patch = Object.fromEntries(Object.entries(p.style).filter(([k]) => allowed.includes(k)));
-        if (patch.fill != null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(patch.fill)) throw new Error("fill must be #RRGGBB");
+        const patch = cleanRunStyle(p.style);
         const runs = styleRange(n.runs, a, b, patch);
         if (n.src) writeOverride(tx, p.id, { runs });
         else tx.set(p.id, { runs: runs.length ? runs : void 0 });
@@ -5032,6 +5174,32 @@ pre.code.small { max-height: 40vh; margin: 0; }
       }
     }
   );
+  function cleanRunStyle(style) {
+    const out = {};
+    for (const [k, v] of Object.entries(style || {})) {
+      if (v === null) {
+        out[k] = null;
+        continue;
+      }
+      if (k === "fontWeight") {
+        if (!Number.isFinite(v) || v < 1 || v > 1e3) throw new Error("fontWeight must be 1 to 1000");
+        out[k] = Math.round(v);
+      } else if (k === "fontSize") {
+        if (!Number.isFinite(v) || v <= 0 || v > 2e3) throw new Error("fontSize must be above 0 and at most 2000");
+        out[k] = v;
+      } else if (k === "italic") {
+        if (typeof v !== "boolean") throw new Error("italic must be true or false");
+        out[k] = v;
+      } else if (k === "decoration") {
+        if (!["underline", "strike"].includes(v)) throw new Error("decoration must be underline or strike");
+        out[k] = v;
+      } else if (k === "fill") {
+        if (!/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) throw new Error("fill must be #RRGGBB");
+        out[k] = v;
+      }
+    }
+    return out;
+  }
   function cmdOrder(tx, env2, to) {
     const ids = topmost(tx.doc, env2.selection || []).filter((id) => !tx.get(id).src);
     if (!ids.length) return false;
@@ -5086,6 +5254,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const main = mainId && tx.get(mainId);
         if (!main || !main.component) throw new Error("Select a main component first");
         const parent = p.parent && validTarget(tx, "", p.parent) ? p.parent : null;
+        if (wouldCycle(tx.doc, parent, mainId)) throw new Error("An instance cannot go inside its own main component");
         let x = p.x, y = p.y;
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
           const b = worldBox(tx.doc, mainId);
@@ -5194,10 +5363,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
       params: { type: { type: "string", required: true, enum: ["color", "text", "effect", "grid"] }, name: { type: "string", required: true }, value: { type: "any" }, fontSize: { type: "number" }, fontFamily: { type: "string" }, fontWeight: { type: "number" }, lineHeight: { type: "number" }, effects: { type: "array" }, grids: { type: "array" }, id: { type: "string" } },
       doc(tx, p) {
         const id = p.id || "s" + uid();
-        if (p.type === "color") tx.setStyle(id, { type: "color", name: p.name, value: p.value || "#000000" });
-        else if (p.type === "grid") tx.setStyle(id, { type: "grid", name: p.name, grids: p.grids || [{ type: "columns", count: 12, gutter: 20, margin: 20, color: "#FF000019" }] });
-        else if (p.type === "effect") tx.setStyle(id, { type: "effect", name: p.name, effects: p.effects || [{ type: "drop", x: 0, y: 4, blur: 8, spread: 0, color: "#00000040" }] });
-        else tx.setStyle(id, { type: "text", name: p.name, fontSize: p.fontSize || 16, fontFamily: p.fontFamily || "Inter", fontWeight: p.fontWeight || 400, lineHeight: p.lineHeight || 1.25 });
+        const made = cleanStyle(p.type === "color" ? { type: "color", name: p.name, value: p.value || "#000000" } : p.type === "effect" ? { type: "effect", name: p.name, effects: p.effects || [{ type: "drop", x: 0, y: 4, blur: 8, spread: 0, color: "#00000040" }] } : p.type === "grid" ? { type: "grid", name: p.name, grids: p.grids || [{ type: "columns", count: 12, gutter: 20, margin: 20, color: "#FF000019" }] } : { type: "text", name: p.name, fontSize: p.fontSize, fontFamily: p.fontFamily, fontWeight: p.fontWeight, lineHeight: p.lineHeight });
+        if (!made) throw new Error("That style value is not valid");
+        if (made.type === "text" && p.fontFamily && !isFontFamily(p.fontFamily)) throw new Error("fontFamily may hold letters, digits, spaces and hyphens only");
+        tx.setStyle(id, made);
         return { value: id };
       }
     },
@@ -5246,7 +5415,9 @@ pre.code.small { max-height: 40vh; margin: 0; }
         if (!s) throw new Error(`No style ${p.id}`);
         const patch = { ...p.patch };
         delete patch.type;
-        tx.setStyle(p.id, { ...s, ...patch });
+        const next = cleanStyle({ ...s, ...patch });
+        if (!next) throw new Error("That style value is not valid");
+        tx.setStyle(p.id, next);
       }
     },
     {
@@ -5385,7 +5556,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const toks = String(d).match(/[MmLlHhVvCcSsQqTtAaZz]|-?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/g) || [];
     const subs = [];
     let i = 0, cmd = null, cx = 0, cy = 0, sx = 0, sy = 0, lastC = null, lastQ = null, cur = null;
-    const num3 = () => parseFloat(toks[i++]);
+    const num4 = () => parseFloat(toks[i++]);
     const isNum = () => i < toks.length && !/[A-Za-z]/.test(toks[i]);
     const start = (x, y) => {
       cur = { closed: false, segs: [{ c: "M", pts: [[x, y]] }] };
@@ -5412,7 +5583,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       const ox = rel ? cx : 0, oy = rel ? cy : 0;
       switch (cmd.toUpperCase()) {
         case "M": {
-          const x = num3() + ox, y = num3() + oy;
+          const x = num4() + ox, y = num4() + oy;
           start(x, y);
           cx = x;
           cy = y;
@@ -5421,7 +5592,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "L": {
-          const x = num3() + ox, y = num3() + oy;
+          const x = num4() + ox, y = num4() + oy;
           line2(x, y);
           cx = x;
           cy = y;
@@ -5429,21 +5600,21 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "H": {
-          const x = num3() + ox;
+          const x = num4() + ox;
           line2(x, cy);
           cx = x;
           lastC = lastQ = null;
           break;
         }
         case "V": {
-          const y = num3() + oy;
+          const y = num4() + oy;
           line2(cx, y);
           cy = y;
           lastC = lastQ = null;
           break;
         }
         case "C": {
-          const a = num3() + ox, b = num3() + oy, c = num3() + ox, e = num3() + oy, f2 = num3() + ox, g = num3() + oy;
+          const a = num4() + ox, b = num4() + oy, c = num4() + ox, e = num4() + oy, f2 = num4() + ox, g = num4() + oy;
           cubic(a, b, c, e, f2, g);
           lastC = [c, e];
           lastQ = null;
@@ -5453,7 +5624,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         }
         case "S": {
           const r = lastC ? [2 * cx - lastC[0], 2 * cy - lastC[1]] : [cx, cy];
-          const c = num3() + ox, e = num3() + oy, f2 = num3() + ox, g = num3() + oy;
+          const c = num4() + ox, e = num4() + oy, f2 = num4() + ox, g = num4() + oy;
           cubic(r[0], r[1], c, e, f2, g);
           lastC = [c, e];
           lastQ = null;
@@ -5462,7 +5633,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "Q": {
-          const qx = num3() + ox, qy = num3() + oy, x = num3() + ox, y = num3() + oy;
+          const qx = num4() + ox, qy = num4() + oy, x = num4() + ox, y = num4() + oy;
           cubic(cx + 2 / 3 * (qx - cx), cy + 2 / 3 * (qy - cy), x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y), x, y);
           lastQ = [qx, qy];
           lastC = null;
@@ -5472,7 +5643,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         }
         case "T": {
           const q = lastQ ? [2 * cx - lastQ[0], 2 * cy - lastQ[1]] : [cx, cy];
-          const x = num3() + ox, y = num3() + oy;
+          const x = num4() + ox, y = num4() + oy;
           cubic(cx + 2 / 3 * (q[0] - cx), cy + 2 / 3 * (q[1] - cy), x + 2 / 3 * (q[0] - x), y + 2 / 3 * (q[1] - y), x, y);
           lastQ = q;
           lastC = null;
@@ -5481,7 +5652,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "A": {
-          const rx = num3(), ry = num3(), rot = num3(), large = num3(), sweep2 = num3(), x = num3() + ox, y = num3() + oy;
+          const rx = num4(), ry = num4(), rot = num4(), large = num4(), sweep2 = num4(), x = num4() + ox, y = num4() + oy;
           for (const c of arcToCubics(cx, cy, rx, ry, rot, large, sweep2, x, y)) cubic(...c);
           cx = x;
           cy = y;
@@ -5516,8 +5687,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ry *= Math.sqrt(lam);
     }
     const sign = fa === fs ? -1 : 1;
-    const num3 = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
-    const co = sign * Math.sqrt(Math.max(0, num3 / (rx * rx * y1p * y1p + ry * ry * x1p * x1p)));
+    const num4 = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+    const co = sign * Math.sqrt(Math.max(0, num4 / (rx * rx * y1p * y1p + ry * ry * x1p * x1p)));
     const cxp = co * rx * y1p / ry, cyp = -co * ry * x1p / rx;
     const cx = cos * cxp - sin * cyp + (x1 + x2) / 2, cy = sin * cxp + cos * cyp + (y1 + y2) / 2;
     const ang = (ux, uy, vx, vy) => {
@@ -5658,7 +5829,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
   function paints(v) {
     if (v == null || v === "") return [];
     const list = Array.isArray(v) ? v : [v];
-    return list.filter(Boolean).map((p) => typeof p === "string" ? { type: "solid", color: p } : p).filter((p) => p.visible !== false);
+    return list.map((p) => typeof p === "string" ? { type: "solid", color: p } : p).filter((p) => p && typeof p === "object" && PAINT_TYPES.includes(p.type) && p.visible !== false);
   }
   function firstColor(v) {
     for (const p of paints(v)) {
@@ -5764,7 +5935,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         ctx2.transform(w || 1, 0, 0, h2 || 1, 0, 0);
         let g;
         if (p.type === "linear") {
-          const a = (p.angle ?? 90) * Math.PI / 180;
+          const a = (Number.isFinite(+p.angle) ? +p.angle : 90) * Math.PI / 180;
           const dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
           g = ctx2.createLinearGradient(0.5 - dx, 0.5 - dy, 0.5 + dx, 0.5 + dy);
         } else if (p.type === "radial") g = ctx2.createRadialGradient(p.cx ?? 0.5, p.cy ?? 0.5, 0, p.cx ?? 0.5, p.cy ?? 0.5, p.r ?? 0.5);
@@ -6003,6 +6174,13 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const index2 = order.indexOf(ids[ids.length - 1]) - ids.length + 1;
         const g = makeNode("boolean", { ...keep(base), name: { union: "Union", subtract: "Subtract", intersect: "Intersect", exclude: "Exclude" }[p.op], op: p.op, x: 0, y: 0, w: 1, h: 1 });
         if (!g.fill && !g.stroke) g.fill = "#D9D9D9";
+        const toParent = inv(pm2(tx, parent));
+        for (const id of ids) {
+          const n = tx.get(id);
+          if (n.parent === parent) continue;
+          const c = apply(toParent, apply(worldMatrix(tx.doc, id), { x: n.w / 2, y: n.h / 2 }));
+          tx.set(id, { x: round2(c.x - n.w / 2), y: round2(c.y - n.h / 2) });
+        }
         for (const id of ids) tx.detach(id);
         tx.add(g, parent, Math.max(0, index2));
         for (const id of ids) {
@@ -6034,9 +6212,20 @@ pre.code.small { max-height: 40vh; margin: 0; }
     }))
   );
   function syncBooleans(tx) {
-    for (const id of Object.keys(tx.doc.nodes)) {
+    const depth = (id) => {
+      let d = 0;
+      for (let n = tx.get(id); n && n.parent; n = tx.get(n.parent)) d++;
+      return d;
+    };
+    const touched = (id) => {
+      if (tx.own.has(id)) return true;
+      for (const c of tx.get(id).children || []) if (touched(c)) return true;
+      return false;
+    };
+    const list = Object.keys(tx.doc.nodes).filter((id) => tx.get(id).type === "boolean").sort((a, b) => depth(b) - depth(a));
+    for (const id of list) {
       const n = tx.get(id);
-      if (!n || n.type !== "boolean" || !n.children || !n.children.length) continue;
+      if (!n || !n.children || !n.children.length || n.d && !touched(id)) continue;
       const kids = n.children.filter((c) => tx.get(c) && tx.get(c).visible !== false);
       const gs = kids.map((c) => {
         const rs = flatten(parsePath(outlineInParent(tx.get(c))), 0.2).filter((r) => r.pts.length > 2).map((r) => [...r.pts.map(([x, y]) => [x, y]), r.pts[0]]);
@@ -7130,7 +7319,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     };
     const w = n.w || 1, h2 = n.h || 1;
     if (p.type === "linear") {
-      const a = (p.angle ?? 90) * Math.PI / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+      const a = (Number.isFinite(+p.angle) ? +p.angle : 90) * Math.PI / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
       return stops(ctx2.createLinearGradient((0.5 - dx) * w, (0.5 - dy) * h2, (0.5 + dx) * w, (0.5 + dy) * h2));
     }
     if (p.type === "radial" || p.type === "diamond") return stops(ctx2.createRadialGradient((p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h2, 0, (p.cx ?? 0.5) * w, (p.cy ?? 0.5) * h2, (p.r ?? 0.5) * Math.max(w, h2)));
@@ -7247,11 +7436,11 @@ pre.code.small { max-height: 40vh; margin: 0; }
 
   // src/export.js
   var esc2 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  var num = (v) => {
+  var num2 = (v) => {
     const x = Number(v);
     return Number.isFinite(x) ? Math.round(x * 1e3) / 1e3 : 0;
   };
-  var mat = (m) => `matrix(${m.map(num).join(" ")})`;
+  var mat = (m) => `matrix(${m.map(num2).join(" ")})`;
   var ALIGN2 = { left: "start", center: "middle", right: "end" };
   function paintedBox(doc, id) {
     const boxes = [worldBox(doc, id)];
@@ -7288,11 +7477,11 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const shape = (n, attrs) => {
       const r = n.radius;
       const simpleRect = (n.type === "rect" || n.type === "frame" || n.type === "instance") && !Array.isArray(r);
-      if (n.type === "ellipse") return `<ellipse cx="${num(n.w / 2)}" cy="${num(n.h / 2)}" rx="${num(n.w / 2)}" ry="${num(n.h / 2)}"${attrs}/>`;
-      if (n.type === "line") return `<line x1="0" y1="0" x2="${num(n.w)}" y2="0"${attrs}/>`;
+      if (n.type === "ellipse") return `<ellipse cx="${num2(n.w / 2)}" cy="${num2(n.h / 2)}" rx="${num2(n.w / 2)}" ry="${num2(n.h / 2)}"${attrs}/>`;
+      if (n.type === "line") return `<line x1="0" y1="0" x2="${num2(n.w)}" y2="0"${attrs}/>`;
       if (simpleRect) {
-        const rr = r > 0 ? ` rx="${num(Math.min(r, n.w / 2, n.h / 2))}"` : "";
-        return `<rect width="${num(n.w)}" height="${num(n.h)}"${rr}${attrs}/>`;
+        const rr = r > 0 ? ` rx="${num2(Math.min(r, n.w / 2, n.h / 2))}"` : "";
+        return `<rect width="${num2(n.w)}" height="${num2(n.h)}"${rr}${attrs}/>`;
       }
       const rule = n.fillRule === "evenodd" ? ' fill-rule="evenodd"' : "";
       return `<path d="${esc2(outlineD(n))}"${rule}${attrs}/>`;
@@ -7302,8 +7491,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       if (!fx.length) return "";
       const id = uid2();
       const parts = fx.map((e) => {
-        if (e.type === "drop") return `<feDropShadow dx="${num(e.x)}" dy="${num(e.y)}" stdDeviation="${num((e.blur || 0) / 2)}" flood-color="${esc2(e.color || "rgba(0,0,0,0.25)")}"/>`;
-        if (e.type === "blur") return `<feGaussianBlur stdDeviation="${num((e.radius || 0) / 2)}"/>`;
+        if (e.type === "drop") return `<feDropShadow dx="${num2(e.x)}" dy="${num2(e.y)}" stdDeviation="${num2((e.blur || 0) / 2)}" flood-color="${esc2(e.color || "rgba(0,0,0,0.25)")}"/>`;
+        if (e.type === "blur") return `<feGaussianBlur stdDeviation="${num2((e.radius || 0) / 2)}"/>`;
         return "";
       }).join("");
       if (!parts) return "";
@@ -7314,14 +7503,14 @@ pre.code.small { max-height: 40vh; margin: 0; }
       if (!stroke || !(n.strokeWidth > 0)) return "";
       const color = firstColor(stroke) || "#000";
       const dash = Array.isArray(n.dash) && n.dash.length ? n.dash : n.dashed ? [6, 4] : null;
-      return ` stroke="${esc2(color)}" stroke-width="${num(n.strokeWidth)}"` + (n.type === "line" || n.strokeCap ? ` stroke-linecap="${esc2(n.strokeCap || "round")}"` : "") + (n.strokeJoin ? ` stroke-linejoin="${esc2(n.strokeJoin)}"` : "") + (dash ? ` stroke-dasharray="${dash.map(num).join(" ")}"` : "");
+      return ` stroke="${esc2(color)}" stroke-width="${num2(n.strokeWidth)}"` + (n.type === "line" || n.strokeCap ? ` stroke-linecap="${esc2(n.strokeCap || "round")}"` : "") + (n.strokeJoin ? ` stroke-linejoin="${esc2(n.strokeJoin)}"` : "") + (dash ? ` stroke-dasharray="${dash.map(num2).join(" ")}"` : "");
     };
-    const fills = (n, fill) => svgPaints(fill, n.w, n.h, doc, defs, uid2).map((p) => shape(n, ` fill="${esc2(p.fill)}"${p.op != null ? ` fill-opacity="${num(p.op)}"` : ""}${p.blend ? ` style="mix-blend-mode:${esc2(p.blend)}"` : ""}`)).join("");
+    const fills = (n, fill) => svgPaints(fill, n.w, n.h, doc, defs, uid2).map((p) => shape(n, ` fill="${esc2(p.fill)}"${p.op != null ? ` fill-opacity="${num2(p.op)}"` : ""}${p.blend ? ` style="mix-blend-mode:${esc2(p.blend)}"` : ""}`)).join("");
     const node2 = (id, m) => {
       const n = doc.nodes[id];
       if (!n || n.visible === false) return "";
       const fill = fillOf(n, doc.styles), stroke = strokeOf(n, doc.styles);
-      const op = n.opacity != null && n.opacity < 1 ? ` opacity="${num(n.opacity)}"` : "";
+      const op = n.opacity != null && n.opacity < 1 ? ` opacity="${num2(n.opacity)}"` : "";
       const blend = n.blendMode && n.blendMode !== "normal" && n.blendMode !== "pass" ? ` style="mix-blend-mode:${esc2(n.blendMode)}"` : "";
       const filt = filterFor(n);
       const head = `transform="${mat(m)}"${op}${blend}${filt}`;
@@ -7331,10 +7520,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const x = s.align === "center" ? n.w / 2 : s.align === "right" ? n.w : 0;
         const spans = L.rich ? L.rich.map((line2) => {
           const x0 = s.align === "center" ? (n.w - line2.w) / 2 : s.align === "right" ? n.w - line2.w : 0;
-          return line2.pieces.map((p) => `<tspan x="${num(x0 + p.x)}" y="${num(line2.y + line2.lh / 2)}" text-anchor="start" style="font:${esc2(p.font)}"${p.fill ? ` fill="${esc2(p.fill)}"` : ""}${p.decoration === "underline" ? ' text-decoration="underline"' : p.decoration === "strike" ? ' text-decoration="line-through"' : ""}>${esc2(p.text)}</tspan>`).join("");
-        }).join("") : L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc2(l) || " "}</tspan>`).join("");
+          return line2.pieces.map((p) => `<tspan x="${num2(x0 + p.x)}" y="${num2(line2.y + line2.lh / 2)}" text-anchor="start" style="font:${esc2(p.font)}"${p.fill ? ` fill="${esc2(p.fill)}"` : ""}${p.decoration === "underline" ? ' text-decoration="underline"' : p.decoration === "strike" ? ' text-decoration="line-through"' : ""}>${esc2(p.text)}</tspan>`).join("");
+        }).join("") : L.lines.map((l, i) => `<tspan x="${num2(x)}" y="${num2(i * L.lh + L.lh / 2)}">${esc2(l) || " "}</tspan>`).join("");
         const color = firstColor(fill) || "#000";
-        return `<text ${head} fill="${esc2(color)}" font-family="${esc2(fontStack(s.fontFamily))}" font-size="${num(s.fontSize)}" font-weight="${num(s.fontWeight || 400)}" text-anchor="${ALIGN2[s.align] || "start"}" dominant-baseline="central" xml:space="preserve"${s.decoration === "underline" ? ' text-decoration="underline"' : s.decoration === "strike" ? ' text-decoration="line-through"' : ""}><title>${esc2(n.name)}</title>${spans}</text>`;
+        return `<text ${head} fill="${esc2(color)}" font-family="${esc2(fontStack(s.fontFamily))}" font-size="${num2(s.fontSize)}" font-weight="${num2(s.fontWeight || 400)}" text-anchor="${ALIGN2[s.align] || "start"}" dominant-baseline="central" xml:space="preserve"${s.decoration === "underline" ? ' text-decoration="underline"' : s.decoration === "strike" ? ' text-decoration="line-through"' : ""}><title>${esc2(n.name)}</title>${spans}</text>`;
       }
       const fillSvg = n.type === "line" ? "" : fills(n, fill);
       const strokeSvg = strokeAttrs(n, stroke) ? shape(n, ' fill="none"' + strokeAttrs(n, stroke)) : "";
@@ -7354,7 +7543,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       m[5] -= b.y;
       return node2(id, m);
     }).join("\n");
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${num(b.w)}" height="${num(b.h)}" viewBox="0 0 ${num(b.w)} ${num(b.h)}">
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${num2(b.w)}" height="${num2(b.h)}" viewBox="0 0 ${num2(b.w)} ${num2(b.h)}">
 ${defs.length ? `<defs>${defs.join("")}</defs>
 ` : ""}${body}
 </svg>
@@ -7688,7 +7877,7 @@ ${inner}
 
   // src/avd.js
   var esc3 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-  var num2 = (v) => Math.round(v * 1e3) / 1e3;
+  var num3 = (v) => Math.round(v * 1e3) / 1e3;
   function argb(hex, alpha = 1) {
     const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex || "");
     if (!m) return null;
@@ -7716,7 +7905,7 @@ ${inner}
       let out = "";
       if (fill || stroke) {
         const scale = Math.sqrt(Math.abs(mm[0] * mm[3] - mm[1] * mm[2])) || 1;
-        out += `${pad}<path android:name="${esc3(n.name)}" android:pathData="${esc3(d)}"` + (fill ? ` android:fillColor="${fill}"${a < 1 ? ` android:fillAlpha="${num2(a)}"` : ""}${n.fillRule === "evenodd" ? ' android:fillType="evenOdd"' : ""}` : "") + (stroke ? ` android:strokeColor="${stroke}" android:strokeWidth="${num2(n.strokeWidth * scale)}"${a < 1 ? ` android:strokeAlpha="${num2(a)}"` : ""}${n.strokeCap ? ` android:strokeLineCap="${esc3(n.strokeCap)}"` : n.type === "line" ? ' android:strokeLineCap="round"' : ""}` : "") + "/>\n";
+        out += `${pad}<path android:name="${esc3(n.name)}" android:pathData="${esc3(d)}"` + (fill ? ` android:fillColor="${fill}"${a < 1 ? ` android:fillAlpha="${num3(a)}"` : ""}${n.fillRule === "evenodd" ? ' android:fillType="evenOdd"' : ""}` : "") + (stroke ? ` android:strokeColor="${stroke}" android:strokeWidth="${num3(n.strokeWidth * scale)}"${a < 1 ? ` android:strokeAlpha="${num3(a)}"` : ""}${n.strokeCap ? ` android:strokeLineCap="${esc3(n.strokeCap)}"` : n.type === "line" ? ' android:strokeLineCap="round"' : ""}` : "") + "/>\n";
       }
       if (n.children && n.children.length && n.type !== "boolean") {
         const kids = n.children.map((c) => walk2(c, mm, a, pad + "  ")).join("");
@@ -7736,8 +7925,8 @@ ${kids}${pad}</group>
 ` : "";
     return `<?xml version="1.0" encoding="utf-8"?>
 ${note}<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="${num2(b.w)}dp" android:height="${num2(b.h)}dp"
-    android:viewportWidth="${num2(b.w)}" android:viewportHeight="${num2(b.h)}">
+    android:width="${num3(b.w)}dp" android:height="${num3(b.h)}dp"
+    android:viewportWidth="${num3(b.w)}" android:viewportHeight="${num3(b.h)}">
 ${body}</vector>
 `;
   }
@@ -7874,6 +8063,7 @@ ${body}</vector>
         if (p.type === "text" && t.type !== "text") throw new Error("A text property needs a text layer");
         if (p.type === "swap" && t.type !== "instance") throw new Error("A swap property needs a nested instance");
         const def = p.default !== void 0 ? p.default : p.type === "text" ? t.text : p.type === "boolean" ? t.visible !== false : t.mainId;
+        if (p.type === "swap" && def === p.id) throw new Error("A swap default cannot be the component itself");
         tx.set(p.id, { props: { ...m.props || {}, [p.name]: { type: p.type, target: p.target, default: def } } });
       }
     },
@@ -7906,6 +8096,7 @@ ${body}</vector>
         if (def.type === "text" && p.value !== null && typeof p.value !== "string") throw new Error("A text property takes text");
         if (def.type === "boolean" && p.value !== null && typeof p.value !== "boolean") throw new Error("A boolean property takes true or false");
         if (def.type === "swap" && p.value !== null && !tx.get(p.value)?.component) throw new Error("A swap property takes a main component id");
+        if (def.type === "swap" && p.value !== null && (p.value === inst.mainId || wouldCycle(tx.doc, p.id, p.value))) throw new Error("A swap cannot put a component inside itself");
         const vals = { ...inst.propValues || {} };
         if (p.value === null) delete vals[p.name];
         else vals[p.name] = p.value;
@@ -7922,7 +8113,7 @@ ${body}</vector>
         const doc = env2.state.doc;
         const ids = p.ids && p.ids.length ? p.ids : env2.selection.length ? env2.selection : doc.children;
         const xml = toAVD(doc, ids);
-        if (p.download || o && o.source !== "agent" && p.download !== false && typeof document !== "undefined") download(new Blob([xml], { type: "application/xml" }), (doc.name || "figger").replace(/[^\w.-]+/g, "_").toLowerCase() + ".xml");
+        if (!(o && o.source === "agent") && p.download !== false && typeof document !== "undefined") download(new Blob([xml], { type: "application/xml" }), (doc.name || "figger").replace(/[^\w.-]+/g, "_").toLowerCase() + ".xml");
         return xml;
       }
     },
@@ -7973,7 +8164,7 @@ ${body}</vector>
     const m = mul(parentM, localMatrix(n));
     const q = apply(inv(m), p);
     const inside = q.x >= -tol && q.y >= -tol && q.x <= n.w + tol && q.y <= n.h + tol;
-    if (n.children && n.children.length && (inside || n.clip === false)) {
+    if (n.children && n.children.length && n.type !== "boolean" && (inside || n.clip === false)) {
       for (let i = n.children.length - 1; i >= 0; i--) {
         const c = hitNode(doc, n.children[i], p, m, tol, exclude);
         if (c) return n.locked ? null : [id, ...c];
@@ -8982,7 +9173,16 @@ ${xo}
       dirty = false;
       const t0 = performance.now();
       const skip = state.editing ? /* @__PURE__ */ new Set([state.editing]) : null;
-      drawView(ctx2, state.doc, state.view, size, dpr, { skip, background: getComputedStyle(wrap).getPropertyValue("--canvas-bg").trim() || "#F5F5F5" });
+      try {
+        drawView(ctx2, state.doc, state.view, size, dpr, { skip, background: getComputedStyle(wrap).getPropertyValue("--canvas-bg").trim() || "#F5F5F5" });
+        app2.renderError = null;
+      } catch (err) {
+        if (!app2.renderError) {
+          app2.renderError = err;
+          console.error("[figger] render failed", err);
+          app2.toast?.(`A layer could not be drawn: ${err.message}`, "error");
+        }
+      }
       ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawOverlay();
       app2.lastFrameMs = performance.now() - t0;
@@ -10407,7 +10607,7 @@ ${xo}
       } else app2.run(cmd, params);
     };
     const setProps = (props, phase = "commit") => apply2("node.set", { ids: state.selection.slice(), props }, phase);
-    const num3 = (label, prop, o = {}) => {
+    const num4 = (label, prop, o = {}) => {
       const f2 = numberField({
         label,
         title: o.title,
@@ -10464,7 +10664,7 @@ ${xo}
         "div.ps-col",
         h("div.ps-row", color, hex, button("−", () => setProps({ [prop]: null, [styleKey]: void 0 }), { title: `Remove ${kind}` })),
         h("div.ps-row", styleSel, button("❖", () => app2.run("style.fromSelection", { kind }), { title: `Create a colour style from this ${kind}` })),
-        kind === "stroke" ? grid(num3("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" })) : null
+        kind === "stroke" ? grid(num4("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" })) : null
       );
     }
     function structureKey() {
@@ -10549,7 +10749,7 @@ ${xo}
         body.append(h("div.ps-row.pad", button("Create component", () => app2.run("component.create"), { title: "Mod+Alt+K" })));
       }
       if (!ns.some((n) => n.src)) {
-        body.append(section2("Position", grid(num3("X", "x"), num3("Y", "y"), num3("W", "w", { min: 1, def: 100 }), num3("H", "h", { min: 0, def: 100 }), num3("↻", "rotation", { title: "Rotation", unit: "°", min: -180, max: 180 }))));
+        body.append(section2("Position", grid(num4("X", "x"), num4("Y", "y"), num4("W", "w", { min: 1, def: 100 }), num4("H", "h", { min: 0, def: 100 }), num4("↻", "rotation", { title: "Rotation", unit: "°", min: -180, max: 180 }))));
       }
       const containers = ns.filter((n) => n.type === "frame" || n.type === "instance");
       if (containers.length === ns.length && !ns.some((n) => n.src)) {
@@ -10647,22 +10847,22 @@ ${xo}
       const radiusUI = !rounded ? null : perCorner ? h("div.ps-col", grid(cornerField(0, "↖"), cornerField(1, "↗"), cornerField(3, "↙"), cornerField(2, "↘")), h("div.ps-row", button("One radius", () => {
         const r = nodes()[0].radius;
         setProps({ radius: Array.isArray(r) ? Math.max(...r) : r });
-      }))) : h("div.ps-row", num3("R", "radius", { min: 0, title: "Corner radius" }), button("⌜⌝", () => {
+      }))) : h("div.ps-row", num4("R", "radius", { min: 0, title: "Corner radius" }), button("⌜⌝", () => {
         const r = nodes()[0].radius || 0;
         setProps({ radius: [r, r, r, r] });
       }, { title: "Independent corners" }));
       body.append(section2(
         "Appearance",
         grid(
-          num3("Op", "opacity", { scale: 100, min: 0, max: 100, def: 100, unit: "%", decimals: 0, title: "Opacity" }),
+          num4("Op", "opacity", { scale: 100, min: 0, max: 100, def: 100, unit: "%", decimals: 0, title: "Opacity" }),
           select(common((n) => n.blendMode || "normal"), [["normal", "Normal"], ...BLEND_MODES.slice(1).map((b) => [b, b])], (v) => setProps({ blendMode: v === "normal" ? void 0 : v }), "Layer blend mode")
         ),
         radiusUI,
         clipRow
       ));
       if (one && one.type === "boolean" && !one.src) body.append(section2("Boolean", h("div.ps-row", ...["union", "subtract", "intersect", "exclude"].map((op) => h("button.ps-btn" + (one.op === op ? ".primary" : ""), { type: "button", on: { click: () => app2.run("boolean.setOp", { op }) } }, op[0].toUpperCase() + op.slice(1)))), h("div.ps-row", button("Flatten", () => app2.run("node.flatten"), { title: "Mod+E" }))));
-      if (allType("polygon")) body.append(section2("Polygon", grid(num3("Sides", "sides", { min: 3, max: 60, def: 3, decimals: 0, title: "Number of sides" }))));
-      if (allType("star")) body.append(section2("Star", grid(num3("Pts", "points", { min: 3, max: 60, def: 5, decimals: 0, title: "Number of points" }), num3("In", "inner", { scale: 100, min: 1, max: 100, def: 38, unit: "%", decimals: 0, title: "Inner radius ratio" }))));
+      if (allType("polygon")) body.append(section2("Polygon", grid(num4("Sides", "sides", { min: 3, max: 60, def: 3, decimals: 0, title: "Number of sides" }))));
+      if (allType("star")) body.append(section2("Star", grid(num4("Pts", "points", { min: 3, max: 60, def: 5, decimals: 0, title: "Number of points" }), num4("In", "inner", { scale: 100, min: 1, max: 100, def: 38, unit: "%", decimals: 0, title: "Inner radius ratio" }))));
       if (one && ["vector", "polygon", "star"].includes(one.type) && !one.src) {
         body.append(section2("Path", h(
           "div.ps-row",
@@ -10696,7 +10896,7 @@ ${xo}
         const opts = hasStroke ? h(
           "div.ps-col",
           grid(
-            num3("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" }),
+            num4("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" }),
             select(common((n) => n.strokeAlign || "center"), [["center", "Centre"], ["inside", "Inside"], ["outside", "Outside"]], (v) => setProps({ strokeAlign: v === "center" ? void 0 : v }), "Stroke position")
           ),
           grid(
@@ -10768,7 +10968,7 @@ ${xo}
             "div.ps-col",
             h("label.ps-field", h("span", "Font"), select(common((n) => n.fontFamily), fontOpts, (v) => setProps({ fontFamily: v }), "Font family")),
             h("label.ps-field", h("span", "Weight"), select(common((n) => n.fontWeight), WEIGHTS, (v) => setProps({ fontWeight: Number(v) }), "Font weight")),
-            grid(num3("Size", "fontSize", { min: 1, def: 16, title: "Font size" }), num3("LH", "lineHeight", { min: 0.5, step: 0.05, def: 1.25, title: "Line height (multiple)" }))
+            grid(num4("Size", "fontSize", { min: 1, def: 16, title: "Font size" }), num4("LH", "lineHeight", { min: 0.5, step: 0.05, def: 1.25, title: "Line height (multiple)" }))
           ),
           h(
             "div.ps-row",
@@ -11276,6 +11476,7 @@ ${xo}
   app.confirm = confirmDialog;
   app.storageLabel = () => store ? store.label() : "…";
   app.liveNode = (id) => state.doc.nodes[id];
+  app.toast = toast;
   var clip = null;
   var selOrAll = (p) => p.ids && p.ids.length ? p.ids : state.selection.length ? state.selection : state.doc.children;
   function copyTree(ids) {
@@ -11299,13 +11500,13 @@ ${xo}
     return { rootIds: roots, nodes, styles };
   }
   register(
-    { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+Z"], scope: "write", run: () => {
+    { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+Z"], scope: "write", noRail: true, run: () => {
       const l = undo();
       if (l) toast(`Undo ${l}`);
       saver?.markDirty();
       return !!l;
     } },
-    { id: "edit.redo", label: "Redo", group: "Edit", keys: ["Shift+Mod+Z", "Mod+Y"], scope: "write", run: () => {
+    { id: "edit.redo", label: "Redo", group: "Edit", keys: ["Shift+Mod+Z", "Mod+Y"], scope: "write", noRail: true, run: () => {
       const l = redo();
       if (l) toast(`Redo ${l}`);
       saver?.markDirty();
@@ -11454,7 +11655,7 @@ ${xo}
       params: { ids: { type: "array" }, download: { type: "boolean" } },
       run: (p, e, o) => {
         const svg = toSVG(state.doc, selOrAll(p));
-        if (p.download || o && o.source !== "agent" && p.download !== false) download(new Blob([svg], { type: "image/svg+xml" }), safeName(state.doc.name).replace(EXT, ".svg"));
+        if (!(o && o.source === "agent") && p.download !== false) download(new Blob([svg], { type: "image/svg+xml" }), safeName(state.doc.name).replace(EXT, ".svg"));
         return svg;
       }
     },
@@ -11467,7 +11668,7 @@ ${xo}
       params: { ids: { type: "array" }, scale: { type: "number" }, download: { type: "boolean" } },
       run: async (p, e, o) => {
         const blob = await toPNG(state.doc, selOrAll(p), p.scale || 2);
-        if (p.download || o && o.source !== "agent" && p.download !== false) {
+        if (!(o && o.source === "agent") && p.download !== false) {
           download(blob, safeName(state.doc.name).replace(EXT, ".png"));
           return { bytes: blob.size };
         }
@@ -11486,7 +11687,7 @@ ${xo}
       params: { ids: { type: "array" }, scale: { type: "number" }, quality: { type: "number" }, download: { type: "boolean" } },
       run: async (p, e, o) => {
         const blob = await toRaster(state.doc, selOrAll(p), { scale: p.scale || 2, type, quality: p.quality ?? 0.9 });
-        if (p.download || o && o.source !== "agent" && p.download !== false) {
+        if (!(o && o.source === "agent") && p.download !== false) {
           download(blob, safeName(state.doc.name).replace(EXT, "." + ext));
           return { bytes: blob.size };
         }
@@ -11508,7 +11709,7 @@ ${xo}
         const ids = selOrAll(p);
         const images2 = await jpegAssets(state.doc, ids);
         const bytes = toPDF(state.doc, ids, { images: images2 });
-        if (p.download || o && o.source !== "agent" && p.download !== false) {
+        if (!(o && o.source === "agent") && p.download !== false) {
           download(new Blob([bytes], { type: "application/pdf" }), safeName(state.doc.name).replace(EXT, ".pdf"));
           return { bytes: bytes.length };
         }

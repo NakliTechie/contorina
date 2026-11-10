@@ -1,5 +1,6 @@
 // Parity additions: component properties, min and max sizes. DOM-free.
 import { register } from './registry.js';
+import { wouldCycle } from './components.js';
 import { toAVD } from './avd.js';
 import { download } from './storage.js';
 
@@ -20,6 +21,7 @@ register(
       if (p.type === 'text' && t.type !== 'text') throw new Error('A text property needs a text layer');
       if (p.type === 'swap' && t.type !== 'instance') throw new Error('A swap property needs a nested instance');
       const def = p.default !== undefined ? p.default : p.type === 'text' ? t.text : p.type === 'boolean' ? t.visible !== false : t.mainId;
+      if (p.type === 'swap' && def === p.id) throw new Error('A swap default cannot be the component itself');
       tx.set(p.id, { props: { ...(m.props || {}), [p.name]: { type: p.type, target: p.target, default: def } } });
     },
   },
@@ -46,6 +48,7 @@ register(
       if (def.type === 'text' && p.value !== null && typeof p.value !== 'string') throw new Error('A text property takes text');
       if (def.type === 'boolean' && p.value !== null && typeof p.value !== 'boolean') throw new Error('A boolean property takes true or false');
       if (def.type === 'swap' && p.value !== null && !tx.get(p.value)?.component) throw new Error('A swap property takes a main component id');
+      if (def.type === 'swap' && p.value !== null && (p.value === inst.mainId || wouldCycle(tx.doc, p.id, p.value))) throw new Error('A swap cannot put a component inside itself');
       const vals = { ...(inst.propValues || {}) };
       if (p.value === null) delete vals[p.name]; else vals[p.name] = p.value;
       tx.set(p.id, { propValues: Object.keys(vals).length ? vals : undefined });
@@ -59,7 +62,7 @@ register(
       const doc = env.state.doc;
       const ids = p.ids && p.ids.length ? p.ids : env.selection.length ? env.selection : doc.children;
       const xml = toAVD(doc, ids);
-      if (p.download || (o && o.source !== 'agent' && p.download !== false && typeof document !== 'undefined')) download(new Blob([xml], { type: 'application/xml' }), (doc.name || 'figger').replace(/[^\w.-]+/g, '_').toLowerCase() + '.xml');
+      if (!(o && o.source === 'agent') && p.download !== false && typeof document !== 'undefined') download(new Blob([xml], { type: 'application/xml' }), (doc.name || 'figger').replace(/[^\w.-]+/g, '_').toLowerCase() + '.xml');
       return xml;
     },
   },
