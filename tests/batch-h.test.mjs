@@ -143,3 +143,41 @@ test('smart animate: matching layers interpolate, new layers fade in', async () 
   assert.equal(half.b2.opacity, 0.5);
   assert.equal(d.nodes.b1.x, 50); // the document itself is untouched
 });
+
+test('grid styles, absolute children, small caps and glass', async () => {
+  const { cssFor } = await import('../src/codegen.js');
+  let d = emptyDoc();
+  d = exec(d, 'node.create', { type: 'frame', w: 300, h: 100, id: 'f', props: { grids: [{ type: 'columns', count: 4, gutter: 10, margin: 10 }] } }).doc;
+  const { doc: d1, r } = exec(d, 'style.fromSelection', { kind: 'grid', name: 'Four' }, ['f']);
+  assert.equal(d1.styles[r.value].grids[0].count, 4);
+  assert.equal(d1.nodes.f.gridStyle, r.value);
+  d = exec(d1, 'node.create', { type: 'rect', parent: 'f', w: 20, h: 20, id: 'a' }).doc;
+  d = exec(d, 'node.create', { type: 'rect', parent: 'f', w: 20, h: 20, id: 'b' }).doc;
+  d = exec(d, 'layout.add', { ids: ['f'] }).doc;
+  d = exec(d, 'node.set', { ids: ['b'], props: { absolute: true, x: 200, y: 50 } }).doc;
+  assert.deepEqual([d.nodes.b.x, d.nodes.b.y], [200, 50]); // auto layout leaves it where it was put
+  assert.equal(d.nodes.a.x, 10);
+  d = exec(d, 'node.create', { type: 'text', id: 't', props: { text: 'Hi', textCase: 'smallcaps', effects: [{ type: 'glass', radius: 12 }] } }).doc;
+  const css = cssFor(d, 't', { root: true });
+  assert.equal(css['font-variant-caps'], 'small-caps');
+  d = exec(d, 'node.create', { type: 'rect', id: 'g', props: { effects: [{ type: 'glass', radius: 12 }] } }).doc;
+  assert.equal(cssFor(d, 'g', { root: true })['backdrop-filter'], 'blur(12px)');
+});
+
+test('prototype conditionals: validation and live variable values while presenting', async () => {
+  const { withRuntimeValues } = await import('../src/present.js');
+  let d = emptyDoc();
+  d = exec(d, 'variable.createCollection', { id: 'c' }).doc;
+  d = exec(d, 'variable.create', { collection: 'c', name: 'dark', type: 'boolean', value: false, id: 'isDark' }).doc;
+  d = exec(d, 'variable.create', { collection: 'c', name: 'bg', type: 'color', value: '#FFFFFF', id: 'bg' }).doc;
+  d = exec(d, 'node.create', { type: 'frame', id: 'A' }).doc;
+  d = exec(d, 'node.create', { type: 'frame', x: 300, id: 'B' }).doc;
+  d = exec(d, 'node.bindVariable', { ids: ['A'], prop: 'fill', variable: 'bg' }).doc;
+  d = exec(d, 'proto.set', { ids: ['A'], proto: { action: 'conditional', variable: 'isDark', equals: true, then: { action: 'navigate', target: 'B' }, else: { action: 'setVariable', variable: 'isDark', value: true } } }).doc;
+  assert.equal(d.nodes.A.proto.action, 'conditional');
+  assert.throws(() => exec(d, 'proto.set', { ids: ['A'], proto: { action: 'setVariable', variable: 'isDark', value: 'yes' } }), /boolean/);
+  assert.throws(() => exec(d, 'proto.set', { ids: ['A'], proto: { action: 'conditional', variable: 'nope', then: { action: 'back' } } }), /No variable/);
+  const live = withRuntimeValues(d, { bg: '#000000' });
+  assert.equal(live.nodes.A.fill, '#000000');
+  assert.equal(d.nodes.A.fill, '#FFFFFF');
+});

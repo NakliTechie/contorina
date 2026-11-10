@@ -84,7 +84,7 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
   const rule = n.fillRule === 'evenodd' ? 'evenodd' : 'nonzero';
 
   // Background blur: blur what is already drawn under the shape.
-  const bg = effects.find((e) => e.type === 'bgblur');
+  const bg = effects.find((e) => e.type === 'bgblur' || e.type === 'glass');
   if (bg && bg.radius > 0 && ctx.canvas) {
     ctx.save();
     ctx.clip(path, rule);
@@ -124,6 +124,19 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
 
   if (n.type !== 'line' && paints(fill).length) fillWith(ctx, fill, n, doc, path, rule);
 
+  for (const e of effects.filter((x) => x.type === 'glass')) {
+    ctx.save();
+    ctx.clip(path, rule);
+    ctx.fillStyle = `rgba(255,255,255,${e.tint ?? 0.15})`;
+    ctx.fillRect(0, 0, n.w, n.h);
+    const g = ctx.createLinearGradient(0, 0, 0, Math.max(1, n.h));
+    g.addColorStop(0, `rgba(255,255,255,${e.highlight ?? 0.6})`);
+    g.addColorStop(0.08, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 2;
+    ctx.stroke(path);
+    ctx.restore();
+  }
   for (const e of effects.filter((x) => x.type === 'noise')) {
     ctx.save();
     ctx.clip(path, rule);

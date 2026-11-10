@@ -149,9 +149,7 @@ register(
       if (proto) {
         proto = { trigger: 'click', action: 'navigate', transition: 'instant', duration: 300, ...proto };
         if (!['click', 'hover', 'press'].includes(proto.trigger)) throw new Error('trigger must be click, hover or press');
-        if (!['navigate', 'overlay', 'back', 'close', 'url'].includes(proto.action)) throw new Error('action must be navigate, overlay, back, close or url');
-        if ((proto.action === 'navigate' || proto.action === 'overlay') && !tx.get(proto.target)) throw new Error('navigate and overlay need a target frame');
-        if (proto.action === 'url' && !/^https?:\/\//.test(proto.url || '')) throw new Error('url must start with http:// or https://');
+        checkAction(tx, proto, 0);
       }
       for (const id of ids) tx.set(id, { proto: proto || undefined });
     },
@@ -240,6 +238,22 @@ register(
     },
   },
 );
+
+// Prototype actions: navigate, overlay, back, close, url; setVariable { variable, value } changes a
+// variable while presenting; conditional { variable, equals, then: action, else?: action } branches.
+const ACTIONS = ['navigate', 'overlay', 'back', 'close', 'url', 'setVariable', 'conditional'];
+function checkAction(tx, a, depth) {
+  if (!a || typeof a !== 'object' || depth > 4) throw new Error('An interaction needs an action');
+  if (!ACTIONS.includes(a.action)) throw new Error(`action must be one of ${ACTIONS.join(', ')}`);
+  if ((a.action === 'navigate' || a.action === 'overlay') && !tx.get(a.target)) throw new Error('navigate and overlay need a target frame');
+  if (a.action === 'url' && !/^https?:\/\//.test(a.url || '')) throw new Error('url must start with http:// or https://');
+  if (a.action === 'setVariable' || a.action === 'conditional') {
+    const v = tx.doc.variables && tx.doc.variables.vars[a.variable];
+    if (!v) throw new Error(`No variable ${a.variable}`);
+    if (a.action === 'setVariable') checkValue(v.type, a.value, tx.doc.variables);
+    if (a.action === 'conditional') { checkAction(tx, a.then, depth + 1); if (a.else) checkAction(tx, a.else, depth + 1); }
+  }
+}
 
 // Pages: doc.children is always the open page; other pages keep their top-level ids in doc.pages.
 export function ensurePages(tx) {

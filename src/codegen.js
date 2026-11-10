@@ -76,6 +76,8 @@ export function cssFor(doc, id, { root = false } = {}) {
     if (t.decoration === 'strike') css['text-decoration'] = 'line-through';
     if (t.textCase === 'upper') css['text-transform'] = 'uppercase';
     if (t.textCase === 'lower') css['text-transform'] = 'lowercase';
+    if (t.textCase === 'smallcaps') css['font-variant-caps'] = 'small-caps';
+    if (t.italic) css['font-style'] = 'italic';
     css['white-space'] = n.autoSize === 'width' ? 'pre' : 'pre-wrap';
   } else if (n.type !== 'vector' && n.type !== 'boolean' && n.type !== 'polygon' && n.type !== 'star' && n.type !== 'line') {
     Object.assign(css, paintCSS(fill, doc));
@@ -97,7 +99,8 @@ export function cssFor(doc, id, { root = false } = {}) {
     if (e.type === 'drop') shadows.push(`${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} ${px(e.spread || 0)} ${e.color || 'rgba(0,0,0,0.25)'}`);
     if (e.type === 'inner') shadows.push(`inset ${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} 0 ${e.color || 'rgba(0,0,0,0.25)'}`);
     if (e.type === 'blur') filters.push(`blur(${px(e.radius || 0)})`);
-    if (e.type === 'bgblur') css['backdrop-filter'] = `blur(${px(e.radius || 0)})`;
+    if (e.type === 'bgblur' || e.type === 'glass') css['backdrop-filter'] = `blur(${px(e.radius || 0)})`;
+    if (e.type === 'glass') shadows.push(`inset 0px 1px 0px 0px rgba(255,255,255,${e.highlight ?? 0.6})`);
   }
   if (shadows.length) css[n.type === 'text' ? 'text-shadow' : 'box-shadow'] = n.type === 'text' ? shadows.filter((s) => !s.startsWith('inset')).map((s) => s.split(' ').filter((_, i) => i !== 3).join(' ')).join(', ') : shadows.join(', ');
   if (filters.length) css.filter = filters.join(' ');

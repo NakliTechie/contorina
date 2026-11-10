@@ -89,8 +89,8 @@ export function paintList({ get, apply, fields, app, kind }) {
   return h('div.ps-col', ...rows.reverse(), h('div.ps-row', btn(`+ ${kind === 'fill' ? 'Fill' : 'Stroke'}`, `Add a ${kind}`, () => set([...list(), { type: 'solid', color: kind === 'fill' ? '#D9D9D9' : '#1E1E1E' }]))));
 }
 
-const EFFECT_TYPES = [['drop', 'Drop shadow'], ['inner', 'Inner shadow'], ['blur', 'Layer blur'], ['bgblur', 'Background blur']];
-const EFFECT_DEFAULTS = { drop: { x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }, inner: { x: 0, y: 2, blur: 4, color: '#00000040' }, blur: { radius: 4 }, bgblur: { radius: 8 } };
+const EFFECT_TYPES = [['drop', 'Drop shadow'], ['inner', 'Inner shadow'], ['blur', 'Layer blur'], ['bgblur', 'Background blur'], ['glass', 'Glass'], ['noise', 'Noise']];
+const EFFECT_DEFAULTS = { drop: { x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }, inner: { x: 0, y: 2, blur: 4, color: '#00000040' }, blur: { radius: 4 }, bgblur: { radius: 8 }, glass: { radius: 16, tint: 0.15, highlight: 0.6 }, noise: { amount: 0.15, size: 1 } };
 
 export function effectsEditor({ get, apply, fields }) {
   const value = get() || [];
@@ -106,7 +106,9 @@ export function effectsEditor({ get, apply, fields }) {
         h('input', { type: 'checkbox', checked: e.visible !== false, 'aria-label': 'Effect visible', on: { change: (ev) => update({ visible: ev.target.checked ? undefined : false }) } }),
         sel(e.type, EFFECT_TYPES, (t) => { const l = list(); l[i] = { type: t, ...EFFECT_DEFAULTS[t] }; set(l); }, 'Effect type'),
         btn('−', 'Remove effect', () => { const l = list(); l.splice(i, 1); set(l); })),
-      shadow ? h('div.ps-grid', f('X', 'x', { title: 'Offset x' }), f('Y', 'y', { title: 'Offset y' }), f('Blur', 'blur', { min: 0, title: 'Blur' }), e.type === 'drop' ? f('Spr', 'spread', { title: 'Spread' }) : null) : h('div.ps-grid', f('Blur', 'radius', { min: 0, title: 'Blur radius' })),
+      shadow ? h('div.ps-grid', f('X', 'x', { title: 'Offset x' }), f('Y', 'y', { title: 'Offset y' }), f('Blur', 'blur', { min: 0, title: 'Blur' }), e.type === 'drop' ? f('Spr', 'spread', { title: 'Spread' }) : null)
+        : e.type === 'noise' ? h('div.ps-grid', f('Amt', 'amount', { min: 0, step: 0.01, def: 0.15, title: 'Amount (0-1)' }), f('Size', 'size', { min: 1, def: 1, title: 'Grain size' }))
+        : h('div.ps-grid', f('Blur', 'radius', { min: 0, title: 'Blur radius' }), e.type === 'glass' ? f('Tint', 'tint', { min: 0, step: 0.01, def: 0.15, title: 'White tint (0-1)' }) : null),
       color);
   });
   return h('div.ps-col', ...rows, h('div.ps-row', btn('+ Effect', 'Add a drop shadow', () => set([...list(), { type: 'drop', ...EFFECT_DEFAULTS.drop }]))));

@@ -4,6 +4,9 @@ import { drawNodes } from './render.js';
 import { hitChain } from './hit.js';
 import { worldMatrix, apply, inv } from './geom.js';
 import { h } from './ui/dom.js';
+import { Tx } from './doc.js';
+import { resolve } from './resolve.js';
+import { valueOf } from './variables.js';
 
 // Smart animate: layers in the destination whose name path also exists in the source move, resize,
 // turn and fade from their source state; layers only in the destination fade in.
@@ -31,7 +34,24 @@ export function smartDoc(doc, fromId, toId, t) {
   return nodes;
 }
 
-export function startPresentation(doc, startId, { onExit } = {}) {
+// The document as it looks with the prototype's live variable values (set by setVariable actions).
+export function withRuntimeValues(doc, values) {
+  if (!doc.variables || !Object.keys(values).length) return doc;
+  const tx = new Tx(doc);
+  const vars = { ...doc.variables.vars };
+  for (const [vid, val] of Object.entries(values)) {
+    const v = vars[vid];
+    if (!v) continue;
+    vars[vid] = { ...v, values: Object.fromEntries(Object.keys(v.values).map((m) => [m, val])) };
+  }
+  tx.doc.variables = { ...doc.variables, vars };
+  resolve(tx);
+  return tx.doc;
+}
+
+export function startPresentation(source, startId, { onExit } = {}) {
+  const runtime = {};
+  let doc = source;
   const frames = doc.children.filter((id) => doc.nodes[id] && doc.nodes[id].type === 'frame' && doc.nodes[id].visible !== false);
   let current = startId && doc.nodes[startId] && !doc.nodes[startId].parent ? startId : doc.flowStart && doc.nodes[doc.flowStart] ? doc.flowStart : frames[0];
   if (!current) throw new Error('Add a top-level frame to present');
@@ -125,6 +145,12 @@ export function startPresentation(doc, startId, { onExit } = {}) {
   }
   function run(pr) {
     if (!pr) return;
+    if (pr.action === 'setVariable') { runtime[pr.variable] = pr.value; doc = withRuntimeValues(source, runtime); render(); return; }
+    if (pr.action === 'conditional') {
+      const cur = pr.variable in runtime ? runtime[pr.variable] : valueOf(source.variables || { vars: {}, collections: {} }, pr.variable, () => null);
+      run(cur === pr.equals ? pr.then : pr.else);
+      return;
+    }
     if (pr.action === 'navigate') go(pr.target, pr.transition, pr.duration);
     else if (pr.action === 'overlay') { overlay = pr.target; render(); }
     else if (pr.action === 'back') back();
@@ -149,5 +175,5 @@ export function startPresentation(doc, startId, { onExit } = {}) {
   ro.observe(root);
   function exit() { ro.disconnect(); root.remove(); onExit && onExit(); }
   render();
-  return { go, back, exit, get current() { return current; }, get overlay() { return overlay; } };
+  return { go, back, exit, run, get current() { return current; }, get overlay() { return overlay; }, get doc() { return doc; } };
 }

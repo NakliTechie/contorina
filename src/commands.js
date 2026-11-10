@@ -586,10 +586,11 @@ register(
   {
     id: 'style.create', label: 'Create style', group: 'Styles', hidden: true,
     description: 'Create a shared style: {type:"color", name, value:"#RRGGBB"} or {type:"text", name, fontSize, fontFamily, fontWeight, lineHeight}.',
-    params: { type: { type: 'string', required: true, enum: ['color', 'text', 'effect'] }, name: { type: 'string', required: true }, value: { type: 'any' }, fontSize: { type: 'number' }, fontFamily: { type: 'string' }, fontWeight: { type: 'number' }, lineHeight: { type: 'number' }, effects: { type: 'array' }, id: { type: 'string' } },
+    params: { type: { type: 'string', required: true, enum: ['color', 'text', 'effect', 'grid'] }, name: { type: 'string', required: true }, value: { type: 'any' }, fontSize: { type: 'number' }, fontFamily: { type: 'string' }, fontWeight: { type: 'number' }, lineHeight: { type: 'number' }, effects: { type: 'array' }, grids: { type: 'array' }, id: { type: 'string' } },
     doc(tx, p) {
       const id = p.id || 's' + uid();
       if (p.type === 'color') tx.setStyle(id, { type: 'color', name: p.name, value: p.value || '#000000' });
+      else if (p.type === 'grid') tx.setStyle(id, { type: 'grid', name: p.name, grids: p.grids || [{ type: 'columns', count: 12, gutter: 20, margin: 20, color: '#FF000019' }] });
       else if (p.type === 'effect') tx.setStyle(id, { type: 'effect', name: p.name, effects: p.effects || [{ type: 'drop', x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }] });
       else tx.setStyle(id, { type: 'text', name: p.name, fontSize: p.fontSize || 16, fontFamily: p.fontFamily || 'Inter', fontWeight: p.fontWeight || 400, lineHeight: p.lineHeight || 1.25 });
       return { value: id };
@@ -598,15 +599,18 @@ register(
   {
     id: 'style.fromSelection', label: 'Create style from selection', group: 'Styles',
     description: 'Make a shared style from the first selected layer\'s fill, stroke or text properties and apply it to the selection.',
-    params: { kind: { type: 'string', enum: ['fill', 'stroke', 'text', 'effect'] }, name: { type: 'string' } },
+    params: { kind: { type: 'string', enum: ['fill', 'stroke', 'text', 'effect', 'grid'] }, name: { type: 'string' } },
     doc(tx, p, env) {
       const ids = sel(tx, {}, env);
       const n = ids.length && tx.get(ids[0]);
       if (!n) return false;
       const kind = p.kind || (n.type === 'text' ? 'text' : 'fill');
       const id = 's' + uid();
-      const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === 'text' ? 'text' : kind === 'effect' ? 'effect' : 'color')).length + 1;
-      if (kind === 'effect') {
+      const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === 'text' ? 'text' : kind === 'effect' ? 'effect' : kind === 'grid' ? 'grid' : 'color')).length + 1;
+      if (kind === 'grid') {
+        if (!n.grids || !n.grids.length) return false;
+        tx.setStyle(id, { type: 'grid', name: p.name || `Grid ${count}`, grids: n.grids });
+      } else if (kind === 'effect') {
         if (!n.effects || !n.effects.length) return false;
         tx.setStyle(id, { type: 'effect', name: p.name || `Effect ${count}`, effects: n.effects });
       } else if (kind === 'text') {
@@ -619,7 +623,7 @@ register(
         if (!value) return false;
         tx.setStyle(id, { type: 'color', name: p.name || `Color ${count}`, value });
       }
-      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle' }[kind];
+      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle', grid: 'gridStyle' }[kind];
       for (const sid of ids) if (kind !== 'text' || tx.get(sid).type === 'text') writeProps(tx, sid, { [key]: id });
       return { value: id };
     },
@@ -649,6 +653,7 @@ register(
         if (n.strokeStyle === p.id) { patch.strokeStyle = undefined; patch.stroke = s.value; }
         if (n.textStyle === p.id) { patch.textStyle = undefined; for (const k of TEXT_KEYS) patch[k] = s[k]; }
         if (n.effectStyle === p.id) { patch.effectStyle = undefined; patch.effects = s.effects; }
+        if (n.gridStyle === p.id) { patch.gridStyle = undefined; patch.grids = s.grids; }
         if (Object.keys(patch).length) tx.set(id, patch);
       }
       tx.setStyle(p.id, undefined);
@@ -657,11 +662,11 @@ register(
   {
     id: 'node.applyStyle', label: 'Apply style', group: 'Styles', hidden: true,
     description: 'Apply a shared style to layers (kind fill, stroke or text), or detach it with styleId null (the layer keeps the values).',
-    params: { ids: ids$, kind: { type: 'string', required: true, enum: ['fill', 'stroke', 'text', 'effect'] }, styleId: { type: 'string', nullable: true, required: true } },
+    params: { ids: ids$, kind: { type: 'string', required: true, enum: ['fill', 'stroke', 'text', 'effect', 'grid'] }, styleId: { type: 'string', nullable: true, required: true } },
     doc(tx, p, env) {
       const ids = sel(tx, p, env);
       if (!ids.length) return false;
-      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle' }[p.kind];
+      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle', grid: 'gridStyle' }[p.kind];
       const old = (id) => tx.doc.styles[tx.get(id)[key]];
       for (const id of ids) {
         const n = tx.get(id);
@@ -671,6 +676,7 @@ register(
           const s = old(id);
           if (p.kind === 'text') for (const k of TEXT_KEYS) patch[k] = s[k];
           else if (p.kind === 'effect') patch.effects = s.effects;
+          else if (p.kind === 'grid') patch.grids = s.grids;
           else patch[p.kind] = s.value;
         }
         writeProps(tx, id, patch);

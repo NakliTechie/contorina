@@ -15,6 +15,10 @@ export function effectsOf(n, styles) {
   const s = n.effectStyle && styles[n.effectStyle];
   return s ? s.effects || [] : n.effects || [];
 }
+export function gridsOf(n, styles) {
+  const s = n.gridStyle && styles[n.gridStyle];
+  return s ? s.grids || [] : n.grids || [];
+}
 export function textOf(n, styles) {
   const s = n.textStyle && styles[n.textStyle];
   if (!s) return n;
@@ -31,4 +35,4 @@ export const FONT_STACKS = {
   Devanagari: "'Noto Sans Devanagari', 'Kohinoor Devanagari', 'Nirmala UI', sans-serif",
 };
 export const fontStack = (family) => FONT_STACKS[family] || `${JSON.stringify(family)}, system-ui, sans-serif`;
-export const fontString = (t) => `${t.fontWeight || 400} ${t.fontSize}px ${fontStack(t.fontFamily)}`;
+export const fontString = (t) => `${t.textCase === 'smallcaps' ? 'small-caps ' : ''}${t.italic ? 'italic ' : ''}${t.fontWeight || 400} ${t.fontSize}px ${fontStack(t.fontFamily)}`;

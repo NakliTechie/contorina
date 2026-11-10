@@ -77,7 +77,7 @@ export function createProps(root, app) {
     if (!ns.length) return extra + 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
     return ns.map((n) => {
       const p = n.parent && state.doc.nodes[n.parent];
-      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id, n.op].join('|');
+      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id, n.op, n.absolute, n.gridStyle, n.italic].join('|');
     }).join(';') + Object.keys(state.doc.styles).join() + extra;
   }
 
@@ -183,6 +183,7 @@ export function createProps(root, app) {
       body.append(section('Resizing',
         h('label.ps-field', h('span', 'Width'), select(common((n) => (n.sizing || {}).h || (n.type === 'text' && n.autoSize === 'width' ? 'hug' : 'fixed')), opts('h'), (v) => app.run('node.setSizing', { h: v }), 'Width sizing')),
         h('label.ps-field', h('span', 'Height'), select(common((n) => (n.sizing || {}).v || (n.type === 'text' && n.autoSize !== 'fixed' ? 'hug' : 'fixed')), opts('v'), (v) => app.run('node.setSizing', { v }), 'Height sizing')),
+        inFlow ? h('label.ps-check', h('input', { type: 'checkbox', checked: !!common((n) => !!n.absolute), on: { change: (e) => setProps({ absolute: e.target.checked || undefined }) } }), 'Absolute position (ignore auto layout)') : null,
         grid(...[['minW', 'Min W'], ['maxW', 'Max W'], ['minH', 'Min H'], ['maxH', 'Max H']].map(([k, label]) => {
           const f = numberField({ label: label.replace(' ', ''), title: label.replace('W', 'width').replace('H', 'height'), min: 0, def: 0, get: () => common((n) => n[k] ?? null),
             apply: (v, phase) => phase === 'commit' && app.run('node.setMinMax', { [k]: v > 0 ? v : null }) });
@@ -295,12 +296,14 @@ export function createProps(root, app) {
           h('label.ps-field', h('span', 'Weight'), select(common((n) => n.fontWeight), WEIGHTS, (v) => setProps({ fontWeight: Number(v) }), 'Font weight')),
           grid(num('Size', 'fontSize', { min: 1, def: 16, title: 'Font size' }), num('LH', 'lineHeight', { min: 0.5, step: 0.05, def: 1.25, title: 'Line height (multiple)' }))),
         h('div.ps-row', seg(common((n) => n.align || 'left'), [['left', '⟸', 'Left'], ['center', '≡', 'Centre'], ['right', '⟹', 'Right']], (v) => setProps({ align: v }), 'Alignment'),
-          select(common((n) => n.autoSize || 'width'), [['width', 'Auto width'], ['height', 'Auto height'], ['fixed', 'Fixed size']], (v) => setProps({ autoSize: v }), 'Text box sizing'))));
+          select(common((n) => n.autoSize || 'width'), [['width', 'Auto width'], ['height', 'Auto height'], ['fixed', 'Fixed size']], (v) => setProps({ autoSize: v }), 'Text box sizing')),
+        h('div.ps-row', select(common((n) => n.textCase || 'none'), [['none', 'As typed'], ['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['smallcaps', 'Small caps']], (v) => setProps({ textCase: v === 'none' ? undefined : v }), 'Letter case'),
+          select(common((n) => (n.italic ? 'italic' : 'normal')), [['normal', 'Upright'], ['italic', 'Italic']], (v) => setProps({ italic: v === 'italic' || undefined }), 'Italic'))));
     }
 
     const vb = !ns.some((n) => n.src) && bindingSection(doc, ns, app);
     if (vb) body.append(vb);
-    if (one && !one.src && one.type === 'frame') body.append(gridsSection(one, app, fields));
+    if (one && !one.src && one.type === 'frame') body.append(gridsSection(one, app, fields, doc));
     if (one && !one.src) body.append(protoSection(doc, one, app));
     const ids = () => state.selection.slice();
     body.append(section('Export', h('div.ps-row', button('PNG', () => app.run('export.png', { ids: ids(), download: true })), button('JPG', () => app.run('export.jpg', { ids: ids(), download: true })), button('SVG', () => app.run('export.svg', { ids: ids(), download: true })), button('PDF', () => app.run('export.pdf', { ids: ids(), download: true }))),

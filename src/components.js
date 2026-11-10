@@ -5,7 +5,7 @@ import { applyConstraints } from './layout.js';
 import { hasLayout } from './doc.js';
 
 // Visual properties an instance root takes from its main unless it overrides them.
-export const ROOT_KEYS = ['fill', 'fillStyle', 'stroke', 'strokeStyle', 'strokeWidth', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dash', 'dashed', 'radius', 'clip', 'layout', 'opacity', 'effects', 'effectStyle', 'blendMode', 'grids'];
+export const ROOT_KEYS = ['fill', 'fillStyle', 'stroke', 'strokeStyle', 'strokeWidth', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dash', 'dashed', 'radius', 'clip', 'layout', 'opacity', 'effects', 'effectStyle', 'blendMode', 'grids', 'gridStyle'];
 // Properties a materialised layer may never override (structure and geometry belong to the main).
 export const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children', 'x', 'y', 'w', 'h', 'rotation', 'src', 'root', 'mainId', 'component', 'variant', 'constraints', 'sizing']);
 

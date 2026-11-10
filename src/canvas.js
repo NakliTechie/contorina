@@ -7,7 +7,7 @@ import { hitChain, pick, marqueeHits, frameAt } from './hit.js';
 import { worldMatrix, worldBox, unionBoxes, apply, inv, applyVec, localMatrix, mul, rad, deg, round2, IDENT } from './geom.js';
 import { snapBox, measure } from './snap.js';
 import { topmost, hasLayout } from './doc.js';
-import { textOf, fontStack } from './styles.js';
+import { textOf, fontStack, gridsOf } from './styles.js';
 
 const HANDLE = 4;
 const SEL = '#0D99FF';
@@ -163,7 +163,7 @@ export function createCanvas(wrap, app) {
   function drawGrids() {
     const doc = state.doc;
     const onPage = [];
-    const walk = (ids) => { for (const id of ids) { const n = doc.nodes[id]; if (!n || n.visible === false) continue; if (n.grids && n.type === 'frame') onPage.push(id); if (n.children) walk(n.children); } };
+    const walk = (ids) => { for (const id of ids) { const n = doc.nodes[id]; if (!n || n.visible === false) continue; if (gridsOf(n, doc.styles).length && n.type === 'frame') onPage.push(id); if (n.children) walk(n.children); } };
     walk(doc.children);
     for (const id of onPage) {
       const n = doc.nodes[id];
@@ -174,7 +174,7 @@ export function createCanvas(wrap, app) {
       const dpr = window.devicePixelRatio || 1;
       ctx.setTransform(dpr * z * m[0], dpr * z * m[1], dpr * z * m[2], dpr * z * m[3], dpr * (z * m[4] + state.view.x), dpr * (z * m[5] + state.view.y));
       ctx.beginPath(); ctx.rect(0, 0, n.w, n.h); ctx.clip();
-      for (const g of n.grids) {
+      for (const g of gridsOf(n, doc.styles)) {
         if (g.visible === false) continue;
         ctx.fillStyle = g.color || 'rgba(255,0,0,0.1)';
         ctx.strokeStyle = g.color || 'rgba(255,0,0,0.1)';

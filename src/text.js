@@ -77,7 +77,7 @@ export function styleAt(t, runs, i) {
   for (const r of runs) if (i >= r.start && i < r.end) s = { ...s, ...r.style };
   return s;
 }
-const fontOf = (t, s) => `${s.italic ? 'italic ' : ''}${s.fontWeight || 400} ${s.fontSize}px ${fontStack(t.fontFamily)}`;
+const fontOf = (t, s) => `${t.textCase === 'smallcaps' ? 'small-caps ' : ''}${s.italic ? 'italic ' : ''}${s.fontWeight || 400} ${s.fontSize}px ${fontStack(t.fontFamily)}`;
 
 function richLayout(t, runs, wrap) {
   const text = caseOf(t, String(t.text ?? ''));

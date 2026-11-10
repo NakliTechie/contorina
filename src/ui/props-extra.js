@@ -77,7 +77,21 @@ export function protoSection(doc, one, app) {
   else {
     kids.push(h('div.ps-grid',
       sel(pr.trigger || 'click', [['click', 'On click'], ['hover', 'While hovering'], ['press', 'On press']], (v) => set({ trigger: v }), 'Trigger'),
-      sel(pr.action || 'navigate', [['navigate', 'Navigate to'], ['overlay', 'Open overlay'], ['back', 'Back'], ['close', 'Close overlay'], ['url', 'Open link']], (v) => set({ action: v, ...(v === 'navigate' || v === 'overlay' ? { target: pr.target || frames[0] } : {}), ...(v === 'url' ? { url: pr.url || 'https://' } : {}) }), 'Action')));
+      sel(pr.action || 'navigate', [['navigate', 'Navigate to'], ['overlay', 'Open overlay'], ['back', 'Back'], ['close', 'Close overlay'], ['url', 'Open link'], ...(doc.variables && Object.keys(doc.variables.vars).length ? [['setVariable', 'Set variable'], ['conditional', 'If variable…']] : [])], (v) => {
+        const vid = Object.keys(doc.variables?.vars || {})[0];
+        const def = { string: '', number: 0, boolean: true, color: '#000000' }[doc.variables?.vars[vid]?.type];
+        app.run('proto.set', { proto: { trigger: pr.trigger || 'click', action: v, ...(v === 'navigate' || v === 'overlay' ? { target: pr.target || frames[0] } : {}), ...(v === 'url' ? { url: 'https://' } : {}),
+          ...(v === 'setVariable' ? { variable: vid, value: def } : {}), ...(v === 'conditional' ? { variable: vid, equals: def, then: { action: 'navigate', target: frames[0] } } : {}) } });
+      }, 'Action')));
+    if (pr.action === 'setVariable' || pr.action === 'conditional') {
+      const V = doc.variables;
+      const vt = V.vars[pr.variable]?.type;
+      const parse = (raw) => (vt === 'number' ? Number(raw) : vt === 'boolean' ? raw === 'true' : raw);
+      const key = pr.action === 'setVariable' ? 'value' : 'equals';
+      kids.push(h('div.ps-grid', sel(pr.variable, Object.entries(V.vars).map(([id, v]) => [id, v.name]), (v) => set({ variable: v }), 'Variable'),
+        h('input', { type: 'text', value: String(pr[key] ?? ''), 'aria-label': key === 'value' ? 'New value' : 'Equals', on: { keydown: stop, change: (e) => set({ [key]: parse(e.target.value) }) } })));
+      if (pr.action === 'conditional') kids.push(h('label.ps-field', h('span', 'Then go to'), sel(pr.then?.target, frames.map((id) => [id, doc.nodes[id].name]), (v) => set({ then: { action: 'navigate', target: v } }), 'Then destination')));
+    }
     if (pr.action === 'navigate' || pr.action === 'overlay') kids.push(sel(pr.target, frames.map((id) => [id, doc.nodes[id].name]), (v) => set({ target: v }), 'Destination'));
     if (pr.action === 'url') kids.push(h('input', { type: 'text', value: pr.url || '', 'aria-label': 'Link', on: { keydown: stop, change: (e) => set({ url: e.target.value }) } }));
     if (pr.action === 'navigate') kids.push(h('div.ps-grid', sel(pr.transition || 'instant', [['instant', 'Instant'], ['dissolve', 'Dissolve'], ['smart', 'Smart animate'], ['slide-left', 'Slide in'], ['slide-right', 'Slide back']], (v) => set({ transition: v }), 'Transition'),
@@ -90,7 +104,11 @@ export function protoSection(doc, one, app) {
 }
 
 // Layout grids on a frame (drawn on the canvas only).
-export function gridsSection(one, app, fields) {
+export function gridsSection(one, app, fields, doc) {
+  const gridStyles = Object.entries((doc && doc.styles) || {}).filter(([, st]) => st.type === 'grid');
+  const styleRow = h('div.ps-row', sel(one.gridStyle || '', [['', '— no grid style —'], ...gridStyles.map(([id, st]) => [id, st.name])], (v) => app.run('node.applyStyle', { kind: 'grid', styleId: v || null }), 'Grid style'),
+    btn('❖', () => app.run('style.fromSelection', { kind: 'grid' }), 'Create a grid style from these grids'));
+  if (one.gridStyle) return section('Layout grid', styleRow, h('div.ps-note', 'Grids come from the style.'));
   const grids = one.grids || [];
   const set = (g) => app.run('layout.setGrids', { grids: g });
   const rows = grids.map((g, i) => {
@@ -99,7 +117,7 @@ export function gridsSection(one, app, fields) {
     return h('div.paint', h('div.ps-row', sel(g.type, [['columns', 'Columns'], ['rows', 'Rows'], ['grid', 'Grid']], (v) => upd({ type: v }), 'Grid type'), btn('−', () => set(grids.filter((_, j) => j !== i)), 'Remove grid')),
       g.type === 'grid' ? h('div.ps-grid', nf('Size', 'size', 8, 'Cell size')) : h('div.ps-grid', nf('N', 'count', 12, 'Count'), nf('Gut', 'gutter', 20, 'Gutter'), nf('Mar', 'margin', 20, 'Margin')));
   });
-  return section('Layout grid', ...rows, h('div.ps-row', btn('+ Grid', () => set([...grids, { type: 'columns', count: 12, gutter: 20, margin: 20, color: '#FF000019' }]))));
+  return section('Layout grid', styleRow, ...rows, h('div.ps-row', btn('+ Grid', () => set([...grids, { type: 'columns', count: 12, gutter: 20, margin: 20, color: '#FF000019' }]))));
 }
 
 // Inspect: measurements and CSS of the selection (read-only).

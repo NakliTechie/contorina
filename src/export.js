@@ -56,7 +56,7 @@ export function toSVG(doc, ids) {
   };
 
   const filterFor = (n) => {
-    const fx = effectsOf(n, doc.styles).filter((e) => e.visible !== false && e.type !== 'bgblur' && e.type !== 'noise');
+    const fx = effectsOf(n, doc.styles).filter((e) => e.visible !== false && (e.type === 'drop' || e.type === 'blur'));
     if (!fx.length) return '';
     const id = uid();
     const parts = fx.map((e) => {
