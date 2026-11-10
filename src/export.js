@@ -2,7 +2,7 @@
 // Every value written into an attribute passes through esc() or num(), because document files are
 // untrusted input (a .figger.json can come from anywhere).
 import { localMatrix, worldBox, unionBoxes, worldMatrix, mul, IDENT } from './geom.js';
-import { fillOf, strokeOf, textOf, fontStack } from './styles.js';
+import { fillOf, strokeOf, textOf, fontStack, effectsOf } from './styles.js';
 import { textLayout } from './text.js';
 import { drawNodes } from './render.js';
 import { svgPaints, paints, firstColor, preloadImages } from './paint.js';
@@ -19,7 +19,7 @@ function paintedBox(doc, id) {
   const walk = (nid) => {
     const n = doc.nodes[nid];
     if (!n || n.visible === false) return;
-    for (const e of n.effects || []) {
+    for (const e of effectsOf(n, doc.styles)) {
       if (e.visible === false) continue;
       const b = worldBox(doc, nid);
       if (e.type === 'drop') { const g = (e.blur || 0) + (e.spread || 0); boxes.push({ x: b.x + (e.x || 0) - g, y: b.y + (e.y || 0) - g, w: b.w + 2 * g, h: b.h + 2 * g }); }
@@ -56,7 +56,7 @@ export function toSVG(doc, ids) {
   };
 
   const filterFor = (n) => {
-    const fx = (n.effects || []).filter((e) => e.visible !== false && e.type !== 'bgblur');
+    const fx = effectsOf(n, doc.styles).filter((e) => e.visible !== false && e.type !== 'bgblur' && e.type !== 'noise');
     if (!fx.length) return '';
     const id = uid();
     const parts = fx.map((e) => {
@@ -94,7 +94,12 @@ export function toSVG(doc, ids) {
       const s = textOf(n, doc.styles);
       const L = textLayout(n, doc.styles);
       const x = s.align === 'center' ? n.w / 2 : s.align === 'right' ? n.w : 0;
-      const spans = L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc(l) || ' '}</tspan>`).join('');
+      const spans = L.rich
+        ? L.rich.map((line) => {
+          const x0 = s.align === 'center' ? (n.w - line.w) / 2 : s.align === 'right' ? n.w - line.w : 0;
+          return line.pieces.map((p) => `<tspan x="${num(x0 + p.x)}" y="${num(line.y + line.lh / 2)}" text-anchor="start" style="font:${esc(p.font)}"${p.fill ? ` fill="${esc(p.fill)}"` : ''}${p.decoration === 'underline' ? ' text-decoration="underline"' : p.decoration === 'strike' ? ' text-decoration="line-through"' : ''}>${esc(p.text)}</tspan>`).join('');
+        }).join('')
+        : L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc(l) || ' '}</tspan>`).join('');
       const color = firstColor(fill) || '#000';
       return `<text ${head} fill="${esc(color)}" font-family="${esc(fontStack(s.fontFamily))}" font-size="${num(s.fontSize)}" font-weight="${num(s.fontWeight || 400)}" text-anchor="${ALIGN[s.align] || 'start'}" dominant-baseline="central" xml:space="preserve"${s.decoration === 'underline' ? ' text-decoration="underline"' : s.decoration === 'strike' ? ' text-decoration="line-through"' : ''}><title>${esc(n.name)}</title>${spans}</text>`;
     }

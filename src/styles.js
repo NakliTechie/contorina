@@ -11,6 +11,10 @@ export function strokeOf(n, styles) {
   const s = n.strokeStyle && styles[n.strokeStyle];
   return s ? s.value : n.stroke;
 }
+export function effectsOf(n, styles) {
+  const s = n.effectStyle && styles[n.effectStyle];
+  return s ? s.effects || [] : n.effects || [];
+}
 export function textOf(n, styles) {
   const s = n.textStyle && styles[n.textStyle];
   if (!s) return n;

@@ -6,6 +6,7 @@ import { worldMatrix, inv, apply, mul, localMatrix, corners, boxOfPoints, IDENT,
 import { setGeometry, DEFAULT_LAYOUT } from './layout.js';
 import { writeOverride, ROOT_KEYS, variantSetOf, findVariant, parseVariantName, remapOverrides } from './components.js';
 import { TEXT_KEYS } from './styles.js';
+import { shiftRuns, styleRange } from './text.js';
 
 const GEOM = new Set(['x', 'y', 'w', 'h', 'rotation']);
 const sel = (tx, p, env) => (p.ids ?? env.selection ?? []).filter((id) => tx.get(id));
@@ -423,10 +424,28 @@ register(
     doc(tx, p) {
       const n = tx.get(p.id);
       if (!n || n.type !== 'text') return false;
-      if (n.src) { writeOverride(tx, p.id, { text: p.text }); return; }
+      const runs = n.runs ? shiftRuns(n.runs, String(n.text), p.text) : undefined;
+      if (n.src) { writeOverride(tx, p.id, { text: p.text, ...(n.runs ? { runs } : {}) }); return; }
       if (!p.text.trim()) { tx.remove(p.id); return { select: [] }; }
       const named = n.name === String(n.text).slice(0, 40);
-      tx.set(p.id, { text: p.text, ...(named ? { name: p.text.split('\n')[0].slice(0, 40) } : {}) });
+      tx.set(p.id, { text: p.text, ...(n.runs ? { runs: runs.length ? runs : undefined } : {}), ...(named ? { name: p.text.split('\n')[0].slice(0, 40) } : {}) });
+    },
+  },
+  {
+    id: 'text.styleRange', label: 'Style part of a text', group: 'Text', hidden: true,
+    description: 'Style characters [start, end) of a text layer: fontWeight, fontSize, italic, fill (#hex), decoration (underline, strike); null removes a key.',
+    params: { id: { type: 'string', required: true }, start: { type: 'number', required: true }, end: { type: 'number', required: true }, style: { type: 'object', required: true } },
+    doc(tx, p) {
+      const n = tx.get(p.id);
+      if (!n || n.type !== 'text') return false;
+      const len = String(n.text).length;
+      const a = Math.max(0, Math.min(len, Math.floor(p.start))), b = Math.max(a, Math.min(len, Math.floor(p.end)));
+      if (a === b) return false;
+      const allowed = ['fontWeight', 'fontSize', 'italic', 'fill', 'decoration'];
+      const patch = Object.fromEntries(Object.entries(p.style).filter(([k]) => allowed.includes(k)));
+      if (patch.fill != null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(patch.fill)) throw new Error('fill must be #RRGGBB');
+      const runs = styleRange(n.runs, a, b, patch);
+      if (n.src) writeOverride(tx, p.id, { runs }); else tx.set(p.id, { runs: runs.length ? runs : undefined });
     },
   },
   {
@@ -567,10 +586,11 @@ register(
   {
     id: 'style.create', label: 'Create style', group: 'Styles', hidden: true,
     description: 'Create a shared style: {type:"color", name, value:"#RRGGBB"} or {type:"text", name, fontSize, fontFamily, fontWeight, lineHeight}.',
-    params: { type: { type: 'string', required: true, enum: ['color', 'text'] }, name: { type: 'string', required: true }, value: { type: 'string' }, fontSize: { type: 'number' }, fontFamily: { type: 'string' }, fontWeight: { type: 'number' }, lineHeight: { type: 'number' }, id: { type: 'string' } },
+    params: { type: { type: 'string', required: true, enum: ['color', 'text', 'effect'] }, name: { type: 'string', required: true }, value: { type: 'any' }, fontSize: { type: 'number' }, fontFamily: { type: 'string' }, fontWeight: { type: 'number' }, lineHeight: { type: 'number' }, effects: { type: 'array' }, id: { type: 'string' } },
     doc(tx, p) {
       const id = p.id || 's' + uid();
       if (p.type === 'color') tx.setStyle(id, { type: 'color', name: p.name, value: p.value || '#000000' });
+      else if (p.type === 'effect') tx.setStyle(id, { type: 'effect', name: p.name, effects: p.effects || [{ type: 'drop', x: 0, y: 4, blur: 8, spread: 0, color: '#00000040' }] });
       else tx.setStyle(id, { type: 'text', name: p.name, fontSize: p.fontSize || 16, fontFamily: p.fontFamily || 'Inter', fontWeight: p.fontWeight || 400, lineHeight: p.lineHeight || 1.25 });
       return { value: id };
     },
@@ -578,15 +598,18 @@ register(
   {
     id: 'style.fromSelection', label: 'Create style from selection', group: 'Styles',
     description: 'Make a shared style from the first selected layer\'s fill, stroke or text properties and apply it to the selection.',
-    params: { kind: { type: 'string', enum: ['fill', 'stroke', 'text'] }, name: { type: 'string' } },
+    params: { kind: { type: 'string', enum: ['fill', 'stroke', 'text', 'effect'] }, name: { type: 'string' } },
     doc(tx, p, env) {
       const ids = sel(tx, {}, env);
       const n = ids.length && tx.get(ids[0]);
       if (!n) return false;
       const kind = p.kind || (n.type === 'text' ? 'text' : 'fill');
       const id = 's' + uid();
-      const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === 'text' ? 'text' : 'color')).length + 1;
-      if (kind === 'text') {
+      const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === 'text' ? 'text' : kind === 'effect' ? 'effect' : 'color')).length + 1;
+      if (kind === 'effect') {
+        if (!n.effects || !n.effects.length) return false;
+        tx.setStyle(id, { type: 'effect', name: p.name || `Effect ${count}`, effects: n.effects });
+      } else if (kind === 'text') {
         if (n.type !== 'text') return false;
         const st = { type: 'text', name: p.name || `Text ${count}` };
         for (const k of TEXT_KEYS) st[k] = n[k];
@@ -596,7 +619,7 @@ register(
         if (!value) return false;
         tx.setStyle(id, { type: 'color', name: p.name || `Color ${count}`, value });
       }
-      const key = kind === 'fill' ? 'fillStyle' : kind === 'stroke' ? 'strokeStyle' : 'textStyle';
+      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle' }[kind];
       for (const sid of ids) if (kind !== 'text' || tx.get(sid).type === 'text') writeProps(tx, sid, { [key]: id });
       return { value: id };
     },
@@ -625,6 +648,7 @@ register(
         if (n.fillStyle === p.id) { patch.fillStyle = undefined; patch.fill = s.value; }
         if (n.strokeStyle === p.id) { patch.strokeStyle = undefined; patch.stroke = s.value; }
         if (n.textStyle === p.id) { patch.textStyle = undefined; for (const k of TEXT_KEYS) patch[k] = s[k]; }
+        if (n.effectStyle === p.id) { patch.effectStyle = undefined; patch.effects = s.effects; }
         if (Object.keys(patch).length) tx.set(id, patch);
       }
       tx.setStyle(p.id, undefined);
@@ -633,11 +657,11 @@ register(
   {
     id: 'node.applyStyle', label: 'Apply style', group: 'Styles', hidden: true,
     description: 'Apply a shared style to layers (kind fill, stroke or text), or detach it with styleId null (the layer keeps the values).',
-    params: { ids: ids$, kind: { type: 'string', required: true, enum: ['fill', 'stroke', 'text'] }, styleId: { type: 'string', nullable: true, required: true } },
+    params: { ids: ids$, kind: { type: 'string', required: true, enum: ['fill', 'stroke', 'text', 'effect'] }, styleId: { type: 'string', nullable: true, required: true } },
     doc(tx, p, env) {
       const ids = sel(tx, p, env);
       if (!ids.length) return false;
-      const key = p.kind === 'fill' ? 'fillStyle' : p.kind === 'stroke' ? 'strokeStyle' : 'textStyle';
+      const key = { fill: 'fillStyle', stroke: 'strokeStyle', text: 'textStyle', effect: 'effectStyle' }[p.kind];
       const old = (id) => tx.doc.styles[tx.get(id)[key]];
       for (const id of ids) {
         const n = tx.get(id);
@@ -646,6 +670,7 @@ register(
         if (!p.styleId && old(id)) {
           const s = old(id);
           if (p.kind === 'text') for (const k of TEXT_KEYS) patch[k] = s[k];
+          else if (p.kind === 'effect') patch.effects = s.effects;
           else patch[p.kind] = s.value;
         }
         writeProps(tx, id, patch);

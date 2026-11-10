@@ -77,7 +77,7 @@ export function createProps(root, app) {
     if (!ns.length) return extra + 'doc:' + Object.keys(state.doc.styles).length + ':' + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
     return ns.map((n) => {
       const p = n.parent && state.doc.nodes[n.parent];
-      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null)].join('|');
+      return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id].join('|');
     }).join(';') + Object.keys(state.doc.styles).join() + extra;
   }
 
@@ -111,10 +111,31 @@ export function createProps(root, app) {
         h('div.ps-note', main ? `of ${main.name}` : 'Its main component was deleted'),
         ...rows,
         others.length ? h('label.ps-field', h('span', 'Swap'), select(one.mainId, [[one.mainId, main ? main.name : '—'], ...others.map((n) => [n.id, n.name])], (v) => v !== one.mainId && app.run('instance.swap', { id: one.id, mainId: v }), 'Swap instance')) : null,
+        ...Object.entries((main && main.props) || {}).map(([name, def]) => {
+          const v = (one.propValues || {})[name] ?? def.default;
+          const set = (value) => app.run('instance.setProp', { id: one.id, name, value });
+          const ctl = def.type === 'boolean' ? h('input', { type: 'checkbox', checked: v !== false, 'aria-label': name, on: { change: (e) => set(e.target.checked) } })
+            : def.type === 'swap' ? select(v, Object.values(doc.nodes).filter((n) => n.component && !n.src).map((n) => [n.id, n.name]), set, name)
+            : h('input', { type: 'text', value: v ?? '', 'aria-label': name, on: { keydown: (e) => e.stopPropagation(), change: (e) => set(e.target.value) } });
+          return h('label.ps-field', h('span', name), ctl);
+        }),
         h('div.ps-row', main ? button('Go to main', () => app.run('component.goToMain')) : null, button('Reset', () => app.run('instance.reset')), button('Detach', () => app.run('component.detach')))));
     } else if (one && one.component) {
       const set = variantSetOf(doc, one.id);
       body.append(section('Component', set ? h('div.ps-note', `Variant ${Object.entries(one.variant || {}).map(([k, v]) => `${k}=${v}`).join(', ')} — rename to change`) : null,
+        ...Object.entries(one.props || {}).map(([name, def]) => h('div.ps-row', h('span.bind-prop', name), h('span.bind-var', `${def.type} → ${doc.nodes[def.target]?.name || '?'}`), button('×', () => app.run('component.removeProp', { id: one.id, name }), { title: 'Remove property' }))),
+        (() => {
+          const layers = [];
+          const walk = (id) => { for (const c of doc.nodes[id].children || []) { layers.push(doc.nodes[c]); if (doc.nodes[c].type !== 'instance') walk(c); } };
+          walk(one.id);
+          if (!layers.length) return null;
+          const typeSel = select('text', [['text', 'Text'], ['boolean', 'Boolean'], ['swap', 'Instance swap']], () => fillTargets(), 'Property type');
+          const target = h('select', { 'aria-label': 'Layer' });
+          const fillTargets = () => target.replaceChildren(...layers.filter((l) => typeSel.value === 'boolean' || (typeSel.value === 'text' ? l.type === 'text' : l.type === 'instance')).map((l) => h('option', { value: l.id }, l.name)));
+          fillTargets();
+          const name = h('input', { type: 'text', placeholder: 'Property name', 'aria-label': 'Property name', on: { keydown: (e) => e.stopPropagation() } });
+          return h('div.ps-col', h('div.ps-row', typeSel, target), h('div.ps-row', name, button('+ Property', () => target.value && app.run('component.addProp', { id: one.id, name: name.value.trim() || doc.nodes[target.value].name, type: typeSel.value, target: target.value }))));
+        })(),
         h('div.ps-row', button('Create instance', () => app.run('component.instance'), { primary: true }))));
     } else if (ns.length > 1 && ns.every((n) => n.component && !variantSetOf(doc, n.id))) {
       body.append(section('Components', h('div.ps-row', button('Combine as variants', () => app.run('component.combineVariants'), { primary: true }))));
@@ -144,9 +165,10 @@ export function createProps(root, app) {
         };
         const padIdx = (i) => lnum(['↑', '→', '↓', '←'][i], (l) => (l.pad || [0, 0, 0, 0])[i], (v, l) => { const p = (l.pad || [0, 0, 0, 0]).slice(); p[i] = v; return { pad: p }; }, { title: ['Padding top', 'Padding right', 'Padding bottom', 'Padding left'][i] });
         body.append(section('Auto layout',
-          h('div.ps-row', seg(lay.wrap ? 'wrap' : lay.mode, [['row', '→', 'Horizontal'], ['column', '↓', 'Vertical'], ['wrap', '↩', 'Wrap']], (v) => setL(v === 'wrap' ? { mode: 'row', wrap: true } : { mode: v, wrap: false }), 'Direction'),
+          h('div.ps-row', seg(lay.mode === 'grid' ? 'grid' : lay.wrap ? 'wrap' : lay.mode, [['row', '→', 'Horizontal'], ['column', '↓', 'Vertical'], ['wrap', '↩', 'Wrap'], ['grid', '▦', 'Grid']], (v) => setL(v === 'wrap' ? { mode: 'row', wrap: true } : v === 'grid' ? { mode: 'grid', wrap: false, columns: lay.columns || 2 } : { mode: v, wrap: false }), 'Direction'),
             button('×', () => app.run('layout.remove'), { title: 'Remove auto layout (Alt+Shift+A)' })),
-          grid(lnum('Gap', (l) => l.gap, (v) => ({ gap: v }), { title: 'Gap between items' }), lay.wrap ? lnum('Rows', (l) => l.crossGap ?? l.gap, (v) => ({ crossGap: v }), { title: 'Gap between rows' }) : null),
+          grid(lnum('Gap', (l) => l.gap, (v) => ({ gap: v }), { title: 'Gap between items' }), lay.wrap || lay.mode === 'grid' ? lnum('Rows', (l) => l.crossGap ?? l.gap, (v) => ({ crossGap: v }), { title: 'Gap between rows' }) : null,
+            lay.mode === 'grid' ? lnum('Cols', (l) => l.columns || 2, (v) => ({ columns: Math.max(1, Math.round(v)) }), { title: 'Columns', min: 1, def: 2 }) : null),
           grid(padIdx(0), padIdx(1), padIdx(2), padIdx(3)),
           h('label.ps-field', h('span', 'Align'), select(lay.align, [['start', 'Start'], ['center', 'Centre'], ['end', 'End'], ['stretch', 'Stretch']], (v) => setL({ align: v }), 'Align items')),
           h('label.ps-field', h('span', 'Justify'), select(lay.justify, [['start', 'Start'], ['center', 'Centre'], ['end', 'End'], ['between', 'Space between']], (v) => setL({ justify: v }), 'Justify items'))));
@@ -160,7 +182,13 @@ export function createProps(root, app) {
       const opts = (axis) => [['fixed', 'Fixed'], ...(ownLayout ? [['hug', 'Hug']] : []), ...(inFlow ? [['fill', 'Fill']] : [])];
       body.append(section('Resizing',
         h('label.ps-field', h('span', 'Width'), select(common((n) => (n.sizing || {}).h || (n.type === 'text' && n.autoSize === 'width' ? 'hug' : 'fixed')), opts('h'), (v) => app.run('node.setSizing', { h: v }), 'Width sizing')),
-        h('label.ps-field', h('span', 'Height'), select(common((n) => (n.sizing || {}).v || (n.type === 'text' && n.autoSize !== 'fixed' ? 'hug' : 'fixed')), opts('v'), (v) => app.run('node.setSizing', { v }), 'Height sizing'))));
+        h('label.ps-field', h('span', 'Height'), select(common((n) => (n.sizing || {}).v || (n.type === 'text' && n.autoSize !== 'fixed' ? 'hug' : 'fixed')), opts('v'), (v) => app.run('node.setSizing', { v }), 'Height sizing')),
+        grid(...[['minW', 'Min W'], ['maxW', 'Max W'], ['minH', 'Min H'], ['maxH', 'Max H']].map(([k, label]) => {
+          const f = numberField({ label: label.replace(' ', ''), title: label.replace('W', 'width').replace('H', 'height'), min: 0, def: 0, get: () => common((n) => n[k] ?? null),
+            apply: (v, phase) => phase === 'commit' && app.run('node.setMinMax', { [k]: v > 0 ? v : null }) });
+          fields.push(f);
+          return f.el;
+        }))));
     }
 
     // Constraints, for children of plain frames and instances' mains.
@@ -230,7 +258,14 @@ export function createProps(root, app) {
           on: { keydown: (e) => e.stopPropagation(), change: (e) => { const d = e.target.value.trim().split(/[\s,]+/).map(Number).filter((x) => Number.isFinite(x) && x >= 0); setProps({ dash: d.length ? d : undefined, dashed: undefined }); } } }))) : null;
       body.append(section('Stroke', paintSection('stroke'), opts));
     }
-    body.append(section('Effects', effectsEditor({ get: () => nodes()[0] && nodes()[0].effects, apply: (v, phase) => setProps({ effects: v }, phase), fields })));
+    {
+      const effStyles = Object.entries(doc.styles).filter(([, st]) => st.type === 'effect');
+      const effId = common((n) => n.effectStyle || '');
+      body.append(section('Effects',
+        h('div.ps-row', select(effId, [['', '— no effect style —'], ...effStyles.map(([id, st]) => [id, st.name])], (v) => app.run('node.applyStyle', { kind: 'effect', styleId: v || null }), 'Effect style'),
+          button('❖', () => app.run('style.fromSelection', { kind: 'effect' }), { title: 'Create an effect style from these effects' })),
+        effId ? h('div.ps-note', 'Effects come from the style.') : effectsEditor({ get: () => nodes()[0] && nodes()[0].effects, apply: (v, phase) => setProps({ effects: v }, phase), fields })));
+    }
 
     if (allType('text')) {
       const t0 = textOf(ns[0], doc.styles);
@@ -238,7 +273,20 @@ export function createProps(root, app) {
       const styleId = common((n) => n.textStyle || '');
       const fontOpts = Object.keys(FONT_STACKS).map((f) => [f, f]);
       if (!FONT_STACKS[t0.fontFamily]) fontOpts.push([t0.fontFamily, t0.fontFamily]);
+      const rangeBtn = (label, title, style) => h('button.ps-btn', { type: 'button', title, on: {
+        pointerdown: (e) => e.preventDefault(), // keep the text editor focused
+        click: () => { const r = app.textRange(); if (r) app.run('text.styleRange', { ...r, style: typeof style === 'function' ? style(r) : style }); },
+      } }, label);
+      const runAt = (r, key) => { const n = state.doc.nodes[r.id]; return (n.runs || []).find((x) => r.start >= x.start && r.end <= x.end && x.style[key] != null)?.style[key]; };
       body.append(section('Text',
+        state.editing === one?.id ? h('div.ps-col', h('div.ps-note', 'Style the selected characters:'), h('div.ps-row',
+          rangeBtn('B', 'Bold', (r) => ({ fontWeight: runAt(r, 'fontWeight') >= 600 ? null : 700 })),
+          rangeBtn('I', 'Italic', (r) => ({ italic: runAt(r, 'italic') ? null : true })),
+          rangeBtn('U', 'Underline', (r) => ({ decoration: runAt(r, 'decoration') === 'underline' ? null : 'underline' })),
+          rangeBtn('S', 'Strike-through', (r) => ({ decoration: runAt(r, 'decoration') === 'strike' ? null : 'strike' })),
+          rangeBtn('A+', 'Larger', (r) => ({ fontSize: Math.round((runAt(r, 'fontSize') || one.fontSize) * 1.25) })),
+          rangeBtn('●', 'Brand colour', () => ({ fill: '#0D99FF' })),
+          rangeBtn('⌫', 'Clear styles', () => ({ fontWeight: null, italic: null, decoration: null, fontSize: null, fill: null })))) : null,
         h('div.ps-row', select(styleId, [['', '— no text style —'], ...textStyles.map(([id, s]) => [id, s.name])], (v) => app.run('node.applyStyle', { kind: 'text', styleId: v || null }), 'Text style'),
           button('❖', () => app.run('style.fromSelection', { kind: 'text' }), { title: 'Create a text style' })),
         styleId ? h('div.ps-note', 'Font settings come from the text style.') : h('div.ps-col',
@@ -255,7 +303,7 @@ export function createProps(root, app) {
     if (one && !one.src) body.append(protoSection(doc, one, app));
     const ids = () => state.selection.slice();
     body.append(section('Export', h('div.ps-row', button('PNG', () => app.run('export.png', { ids: ids(), download: true })), button('JPG', () => app.run('export.jpg', { ids: ids(), download: true })), button('SVG', () => app.run('export.svg', { ids: ids(), download: true })), button('PDF', () => app.run('export.pdf', { ids: ids(), download: true }))),
-      h('div.ps-row', button('Code…', () => app.run('code.show')), button('Inspect', () => app.run('view.inspect'), { title: 'Shift+D' }))));
+      h('div.ps-row', button('Code…', () => app.run('code.show')), button('Android XML', () => app.run('export.avd', { ids: ids(), download: true })), button('Inspect', () => app.run('view.inspect'), { title: 'Shift+D' }))));
   }
 
   function buildDoc() {

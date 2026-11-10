@@ -532,7 +532,7 @@ export function createCanvas(wrap, app) {
     positionEditor();
     editor.focus();
     if (!fresh) editor.select();
-    notify('overlay');
+    notify('overlay', 'selection');
   };
   editor.addEventListener('input', () => {
     if (!state.editing) return;
@@ -542,6 +542,23 @@ export function createCanvas(wrap, app) {
     if (editBase.fresh) g.preview('node.create', { ...editBase.fresh.create, props: { text: editor.value || ' ' } });
     else g.preview('text.set', { id, text: editor.value || ' ' });
   });
+  // The selected character range while editing text, for range styling from the panel.
+  // Typing is a preview until the edit ends; commit what is typed so far, so a range style applies to
+  // committed text and the edit's own commit cannot overwrite it.
+  function flushTextEdit() {
+    if (!state.editing || !editBase) return;
+    const id = state.editing, text = editor.value;
+    const g = editBase.g;
+    if (editBase.fresh) { if (text.trim() && g) g.commit('node.create', { ...editBase.fresh.create, props: { text } }); }
+    else if (g && text !== editBase.text) g.commit('text.set', { id, text });
+    editBase = { id, text, fresh: null, g: null };
+  }
+  app.textRange = () => {
+    if (!state.editing || editor.selectionStart === editor.selectionEnd) return null;
+    const range = { id: state.editing, start: editor.selectionStart, end: editor.selectionEnd };
+    flushTextEdit();
+    return state.doc.nodes[range.id] ? range : null;
+  };
   app.endTextEdit = (commit = true) => {
     const id = state.editing;
     if (!id) return;

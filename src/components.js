@@ -5,7 +5,7 @@ import { applyConstraints } from './layout.js';
 import { hasLayout } from './doc.js';
 
 // Visual properties an instance root takes from its main unless it overrides them.
-export const ROOT_KEYS = ['fill', 'fillStyle', 'stroke', 'strokeStyle', 'strokeWidth', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dash', 'dashed', 'radius', 'clip', 'layout', 'opacity', 'effects', 'blendMode', 'grids'];
+export const ROOT_KEYS = ['fill', 'fillStyle', 'stroke', 'strokeStyle', 'strokeWidth', 'strokeAlign', 'strokeCap', 'strokeJoin', 'dash', 'dashed', 'radius', 'clip', 'layout', 'opacity', 'effects', 'effectStyle', 'blendMode', 'grids'];
 // Properties a materialised layer may never override (structure and geometry belong to the main).
 export const LOCKED_KEYS = new Set(['id', 'type', 'parent', 'children', 'x', 'y', 'w', 'h', 'rotation', 'src', 'root', 'mainId', 'component', 'variant', 'constraints', 'sizing']);
 
@@ -35,7 +35,7 @@ export function materialize(tx, instId, depth) {
     const id = instId + '~' + srcId;
     const o = ov[srcId] || {};
     const n = { ...s };
-    delete n.component; delete n.variant; delete n.overrides;
+    delete n.component; delete n.variant; delete n.overrides; delete n.props;
     for (const k in o) if (!LOCKED_KEYS.has(k) && k !== 'overrides') n[k] = o[k];
     n.id = id; n.parent = parentId; n.src = srcId; n.root = instId;
     if (s.type === 'instance') {
@@ -49,6 +49,15 @@ export function materialize(tx, instId, depth) {
     return id;
   };
   const kids = main.children.map((c) => copy(c, instId));
+  // Component properties: text, boolean (visibility) and instance swap, set per instance.
+  for (const [name, def] of Object.entries(main.props || {})) {
+    const target = tx.doc.nodes[instId + '~' + def.target];
+    if (!target) continue;
+    const v = (inst.propValues || {})[name] ?? def.default;
+    if (def.type === 'text' && target.type === 'text' && typeof v === 'string') target.text = v;
+    else if (def.type === 'boolean') target.visible = v !== false;
+    else if (def.type === 'swap' && target.type === 'instance' && tx.doc.nodes[v] && tx.doc.nodes[v].component) target.mainId = v;
+  }
   for (const id of stale) delete tx.doc.nodes[id];
   const rootPatch = { children: kids };
   const rootOv = ov.$root || {};

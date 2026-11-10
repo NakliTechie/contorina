@@ -4,6 +4,7 @@ import './commands.js';
 import './commands-vector.js';
 import './commands-layer4.js';
 import './commands-layer5.js';
+import './commands-layer6.js';
 import { startPresentation } from './present.js';
 import { toPDF } from './pdf.js';
 import { toRaster } from './export.js';

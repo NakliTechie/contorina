@@ -11,7 +11,7 @@ function padOf(l) {
 
 // frame: {w, h, layout, sizing}; kids: [{id, w, h, sizing}] (visible, in flow).
 // Returns {w, h, kids: [{id, x, y, w, h}]}.
-export function arrange(frame, kids) {
+function arrangeFlow(frame, kids) {
   const L = frame.layout;
   const row = L.mode === 'row';
   const P = padOf(L);
@@ -24,7 +24,7 @@ export function arrange(frame, kids) {
   const kidCrossSizing = (k) => (k.sizing || {})[row ? 'v' : 'h'] || 'fixed';
   const padMain = row ? P.l + P.r : P.t + P.b;
   const padCross = row ? P.t + P.b : P.l + P.r;
-  const out = kids.map((k) => ({ id: k.id, w: k.w, h: k.h, x: 0, y: 0, sm: kidMainSizing(k), sc: kidCrossSizing(k) }));
+  const out = kids.map((k) => ({ id: k.id, w: k.w, h: k.h, x: 0, y: 0, sm: kidMainSizing(k), sc: kidCrossSizing(k), k }));
 
   if (L.wrap && row && !hugMain) {
     const avail = frame.w - padMain;
@@ -71,8 +71,18 @@ export function arrange(frame, kids) {
   if (hugMain) main = fixedSum + gaps + padMain;
   const innerMain = main - padMain;
   if (fills.length) {
-    const each = Math.max(0, (innerMain - fixedSum - gaps) / fills.length);
-    for (const k of fills) k[M] = each;
+    // Share the free space; a fill child held by its min or max gives its excess back to the others.
+    let free = Math.max(0, innerMain - fixedSum - gaps);
+    let open = fills.slice();
+    for (let pass = 0; pass < 4 && open.length; pass++) {
+      const each = free / open.length;
+      const held = open.filter((k) => clampAxis(k.k, M, each) !== each);
+      if (!held.length) { for (const k of open) k[M] = each; break; }
+      for (const k of held) { k[M] = clampAxis(k.k, M, each); free -= k[M]; }
+      open = open.filter((k) => !held.includes(k));
+      if (!open.length) break;
+      if (pass === 3) for (const k of open) k[M] = clampAxis(k.k, M, free / open.length);
+    }
   }
   const total = out.reduce((s, k) => s + k[M], 0);
   let cursor = row ? P.l : P.t;
@@ -92,6 +102,50 @@ export function arrange(frame, kids) {
   return { w: row ? main : cross, h: row ? cross : main, kids: out.map(strip) };
 }
 const strip = (k) => ({ id: k.id, x: round(k.x), y: round(k.y), w: round(k.w), h: round(k.h) });
+
+// Min and max sizes (minW, maxW, minH, maxH) clamp an axis.
+export function clampAxis(n, axis, v) {
+  const lo = n[axis === 'w' ? 'minW' : 'minH'], hi = n[axis === 'w' ? 'maxW' : 'maxH'];
+  if (hi != null && v > hi) v = hi;
+  if (lo != null && v < lo) v = lo;
+  return v;
+}
+
+// Grid mode: `columns` equal columns; each row is as tall as its tallest cell; fill children take the
+// column width (and the row height); the frame hugs its rows when its height hugs.
+function arrangeGrid(frame, kids) {
+  const L = frame.layout;
+  const P = padOf(L);
+  const cols = Math.max(1, Math.round(L.columns || 2));
+  const colGap = L.gap || 0, rowGap = L.crossGap ?? colGap;
+  const sz = frame.sizing || {};
+  const innerW = frame.w - P.l - P.r;
+  const colW = Math.max(0, (innerW - colGap * (cols - 1)) / cols);
+  const cells = kids.map((k) => ({ id: k.id, w: (k.sizing || {}).h === 'fill' ? colW : Math.min(k.w, sz.h === 'hug' ? k.w : colW), h: k.h, fillH: (k.sizing || {}).v === 'fill', x: 0, y: 0, k }));
+  let y = P.t;
+  for (let r = 0; r * cols < cells.length; r++) {
+    const rowCells = cells.slice(r * cols, r * cols + cols);
+    const rh = Math.max(0, ...rowCells.filter((c) => !c.fillH).map((c) => c.h));
+    rowCells.forEach((c, i) => {
+      if (c.fillH) c.h = rh;
+      c.x = P.l + i * (colW + colGap) + (L.align === 'center' ? (colW - c.w) / 2 : L.align === 'end' ? colW - c.w : 0);
+      c.y = y;
+    });
+    y += rh + rowGap;
+  }
+  const contentH = cells.length ? y - rowGap - P.t : 0;
+  return { w: frame.w, h: sz.v === 'hug' ? contentH + P.t + P.b : frame.h, kids: cells.map(strip) };
+}
+
+export function arrange(frame, kids) {
+  const r = frame.layout.mode === 'grid' ? arrangeGrid(frame, kids) : arrangeFlow(frame, kids);
+  // Clamp every child, then the frame itself, by their min and max sizes.
+  const byId = new Map(kids.map((k) => [k.id, k]));
+  for (const c of r.kids) { const k = byId.get(c.id); c.w = round(clampAxis(k, 'w', c.w)); c.h = round(clampAxis(k, 'h', c.h)); }
+  r.w = round(clampAxis(frame, 'w', r.w));
+  r.h = round(clampAxis(frame, 'h', r.h));
+  return r;
+}
 const round = (v) => Math.round(v * 1000) / 1000;
 
 export function layoutNode(tx, id) {
@@ -156,7 +210,7 @@ export function applyConstraints(tx, id, oldW, oldH) {
 export function setGeometry(tx, id, g) {
   const n = tx.get(id);
   const patch = {};
-  for (const k of ['x', 'y', 'w', 'h', 'rotation']) if (g[k] != null && Number.isFinite(g[k])) patch[k] = k === 'w' || k === 'h' ? Math.max(n.type === 'line' && k === 'h' ? 0 : 1, g[k]) : g[k];
+  for (const k of ['x', 'y', 'w', 'h', 'rotation']) if (g[k] != null && Number.isFinite(g[k])) patch[k] = k === 'w' || k === 'h' ? Math.max(n.type === 'line' && k === 'h' ? 0 : 1, clampAxis(n, k, g[k])) : g[k];
   if (n.type === 'line') patch.h = 0;
   const oldW = n.w, oldH = n.h;
   const parent = n.parent && tx.get(n.parent);

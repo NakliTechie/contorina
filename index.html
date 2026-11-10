@@ -3810,7 +3810,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const p = l.pad || [0, 0, 0, 0];
     return { t: p[0] || 0, r: p[1] || 0, b: p[2] || 0, l: p[3] || 0 };
   }
-  function arrange(frame, kids) {
+  function arrangeFlow(frame, kids) {
     const L = frame.layout;
     const row = L.mode === "row";
     const P = padOf(L);
@@ -3823,7 +3823,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const kidCrossSizing = (k) => (k.sizing || {})[row ? "v" : "h"] || "fixed";
     const padMain = row ? P.l + P.r : P.t + P.b;
     const padCross = row ? P.t + P.b : P.l + P.r;
-    const out = kids.map((k) => ({ id: k.id, w: k.w, h: k.h, x: 0, y: 0, sm: kidMainSizing(k), sc: kidCrossSizing(k) }));
+    const out = kids.map((k) => ({ id: k.id, w: k.w, h: k.h, x: 0, y: 0, sm: kidMainSizing(k), sc: kidCrossSizing(k), k }));
     if (L.wrap && row && !hugMain) {
       const avail = frame.w - padMain;
       const lines = [];
@@ -3869,8 +3869,23 @@ pre.code.small { max-height: 40vh; margin: 0; }
     if (hugMain) main = fixedSum + gaps + padMain;
     const innerMain = main - padMain;
     if (fills.length) {
-      const each = Math.max(0, (innerMain - fixedSum - gaps) / fills.length);
-      for (const k of fills) k[M] = each;
+      let free2 = Math.max(0, innerMain - fixedSum - gaps);
+      let open = fills.slice();
+      for (let pass = 0; pass < 4 && open.length; pass++) {
+        const each = free2 / open.length;
+        const held = open.filter((k) => clampAxis(k.k, M, each) !== each);
+        if (!held.length) {
+          for (const k of open) k[M] = each;
+          break;
+        }
+        for (const k of held) {
+          k[M] = clampAxis(k.k, M, each);
+          free2 -= k[M];
+        }
+        open = open.filter((k) => !held.includes(k));
+        if (!open.length) break;
+        if (pass === 3) for (const k of open) k[M] = clampAxis(k.k, M, free2 / open.length);
+      }
     }
     const total = out.reduce((s, k) => s + k[M], 0);
     let cursor = row ? P.l : P.t;
@@ -3896,6 +3911,47 @@ pre.code.small { max-height: 40vh; margin: 0; }
     return { w: row ? main : cross, h: row ? cross : main, kids: out.map(strip) };
   }
   var strip = (k) => ({ id: k.id, x: round(k.x), y: round(k.y), w: round(k.w), h: round(k.h) });
+  function clampAxis(n, axis, v) {
+    const lo = n[axis === "w" ? "minW" : "minH"], hi = n[axis === "w" ? "maxW" : "maxH"];
+    if (hi != null && v > hi) v = hi;
+    if (lo != null && v < lo) v = lo;
+    return v;
+  }
+  function arrangeGrid(frame, kids) {
+    const L = frame.layout;
+    const P = padOf(L);
+    const cols = Math.max(1, Math.round(L.columns || 2));
+    const colGap = L.gap || 0, rowGap = L.crossGap ?? colGap;
+    const sz = frame.sizing || {};
+    const innerW = frame.w - P.l - P.r;
+    const colW = Math.max(0, (innerW - colGap * (cols - 1)) / cols);
+    const cells = kids.map((k) => ({ id: k.id, w: (k.sizing || {}).h === "fill" ? colW : Math.min(k.w, sz.h === "hug" ? k.w : colW), h: k.h, fillH: (k.sizing || {}).v === "fill", x: 0, y: 0, k }));
+    let y = P.t;
+    for (let r = 0; r * cols < cells.length; r++) {
+      const rowCells = cells.slice(r * cols, r * cols + cols);
+      const rh = Math.max(0, ...rowCells.filter((c) => !c.fillH).map((c) => c.h));
+      rowCells.forEach((c, i) => {
+        if (c.fillH) c.h = rh;
+        c.x = P.l + i * (colW + colGap) + (L.align === "center" ? (colW - c.w) / 2 : L.align === "end" ? colW - c.w : 0);
+        c.y = y;
+      });
+      y += rh + rowGap;
+    }
+    const contentH = cells.length ? y - rowGap - P.t : 0;
+    return { w: frame.w, h: sz.v === "hug" ? contentH + P.t + P.b : frame.h, kids: cells.map(strip) };
+  }
+  function arrange(frame, kids) {
+    const r = frame.layout.mode === "grid" ? arrangeGrid(frame, kids) : arrangeFlow(frame, kids);
+    const byId = new Map(kids.map((k) => [k.id, k]));
+    for (const c of r.kids) {
+      const k = byId.get(c.id);
+      c.w = round(clampAxis(k, "w", c.w));
+      c.h = round(clampAxis(k, "h", c.h));
+    }
+    r.w = round(clampAxis(frame, "w", r.w));
+    r.h = round(clampAxis(frame, "h", r.h));
+    return r;
+  }
   var round = (v) => Math.round(v * 1e3) / 1e3;
   function layoutNode(tx, id) {
     const n = tx.get(id);
@@ -3971,7 +4027,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
   function setGeometry(tx, id, g) {
     const n = tx.get(id);
     const patch = {};
-    for (const k of ["x", "y", "w", "h", "rotation"]) if (g[k] != null && Number.isFinite(g[k])) patch[k] = k === "w" || k === "h" ? Math.max(n.type === "line" && k === "h" ? 0 : 1, g[k]) : g[k];
+    for (const k of ["x", "y", "w", "h", "rotation"]) if (g[k] != null && Number.isFinite(g[k])) patch[k] = k === "w" || k === "h" ? Math.max(n.type === "line" && k === "h" ? 0 : 1, clampAxis(n, k, g[k])) : g[k];
     if (n.type === "line") patch.h = 0;
     const oldW = n.w, oldH = n.h;
     const parent = n.parent && tx.get(n.parent);
@@ -3992,7 +4048,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
   }
 
   // src/components.js
-  var ROOT_KEYS = ["fill", "fillStyle", "stroke", "strokeStyle", "strokeWidth", "strokeAlign", "strokeCap", "strokeJoin", "dash", "dashed", "radius", "clip", "layout", "opacity", "effects", "blendMode", "grids"];
+  var ROOT_KEYS = ["fill", "fillStyle", "stroke", "strokeStyle", "strokeWidth", "strokeAlign", "strokeCap", "strokeJoin", "dash", "dashed", "radius", "clip", "layout", "opacity", "effects", "effectStyle", "blendMode", "grids"];
   var LOCKED_KEYS = /* @__PURE__ */ new Set(["id", "type", "parent", "children", "x", "y", "w", "h", "rotation", "src", "root", "mainId", "component", "variant", "constraints", "sizing"]);
   function syncInstances(tx) {
     const nodes = tx.doc.nodes;
@@ -4024,6 +4080,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       delete n.component;
       delete n.variant;
       delete n.overrides;
+      delete n.props;
       for (const k in o) if (!LOCKED_KEYS.has(k) && k !== "overrides") n[k] = o[k];
       n.id = id;
       n.parent = parentId;
@@ -4040,6 +4097,14 @@ pre.code.small { max-height: 40vh; margin: 0; }
       return id;
     };
     const kids = main.children.map((c) => copy(c, instId));
+    for (const [name, def] of Object.entries(main.props || {})) {
+      const target = tx.doc.nodes[instId + "~" + def.target];
+      if (!target) continue;
+      const v = (inst.propValues || {})[name] ?? def.default;
+      if (def.type === "text" && target.type === "text" && typeof v === "string") target.text = v;
+      else if (def.type === "boolean") target.visible = v !== false;
+      else if (def.type === "swap" && target.type === "instance" && tx.doc.nodes[v] && tx.doc.nodes[v].component) target.mainId = v;
+    }
     for (const id of stale) delete tx.doc.nodes[id];
     const rootPatch = { children: kids };
     const rootOv = ov.$root || {};
@@ -4156,6 +4221,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const s = n.strokeStyle && styles[n.strokeStyle];
     return s ? s.value : n.stroke;
   }
+  function effectsOf(n, styles) {
+    const s = n.effectStyle && styles[n.effectStyle];
+    return s ? s.effects || [] : n.effects || [];
+  }
   function textOf(n, styles) {
     const s = n.textStyle && styles[n.textStyle];
     if (!s) return n;
@@ -4172,6 +4241,210 @@ pre.code.small { max-height: 40vh; margin: 0; }
   };
   var fontStack = (family) => FONT_STACKS[family] || `${JSON.stringify(family)}, system-ui, sans-serif`;
   var fontString = (t) => `${t.fontWeight || 400} ${t.fontSize}px ${fontStack(t.fontFamily)}`;
+
+  // src/text.js
+  var ctx;
+  function measureCtx() {
+    if (ctx !== void 0) return ctx;
+    try {
+      ctx = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1).getContext("2d") : null;
+    } catch {
+      ctx = null;
+    }
+    return ctx;
+  }
+  var widthCache = /* @__PURE__ */ new Map();
+  function textWidth(font, size, s) {
+    const key = font + "\0" + s;
+    let w = widthCache.get(key);
+    if (w === void 0) {
+      const c = measureCtx();
+      if (c) {
+        c.font = font;
+        w = c.measureText(s).width;
+      } else w = s.length * size * 0.55;
+      if (widthCache.size > 2e4) widthCache.clear();
+      widthCache.set(key, w);
+    }
+    return w;
+  }
+  function breakLines(t, wrapWidth) {
+    const font = fontString(t);
+    const out = [];
+    for (const para of String(t.text ?? "").split("\n")) {
+      if (wrapWidth == null) {
+        out.push(para);
+        continue;
+      }
+      const words = para.split(/(\s+)/);
+      let line2 = "";
+      for (const w of words) {
+        const next = line2 + w;
+        if (line2 && textWidth(font, t.fontSize, next.trimEnd()) > wrapWidth) {
+          out.push(line2.trimEnd());
+          line2 = w.trimStart();
+        } else line2 = next;
+      }
+      out.push(line2);
+    }
+    return out;
+  }
+  var layoutCache = /* @__PURE__ */ new Map();
+  function textLayout(n, styles) {
+    const t = textOf(n, styles);
+    const mode = n.autoSize || "width";
+    const wrap = mode === "width" ? null : n.w;
+    const runsKey = n.runs && n.runs.length ? JSON.stringify(n.runs) : "";
+    const key = `${t.fontWeight}|${t.fontSize}|${t.fontFamily}|${t.lineHeight}|${t.letterSpacing || 0}|${t.textCase || ""}|${wrap}|${runsKey}|${t.text}`;
+    let r = layoutCache.get(key);
+    if (!r) {
+      r = runsKey ? richLayout(t, n.runs, wrap) : plainLayout(t, wrap);
+      if (layoutCache.size > 5e3) layoutCache.clear();
+      layoutCache.set(key, r);
+    }
+    return r;
+  }
+  var caseOf = (t, s) => t.textCase === "upper" ? s.toUpperCase() : t.textCase === "lower" ? s.toLowerCase() : s;
+  function plainLayout(t, wrap) {
+    const lines = breakLines({ ...t, text: caseOf(t, String(t.text ?? "")) }, wrap);
+    const font = fontString(t);
+    const lh = t.fontSize * (t.lineHeight || 1.25);
+    const w = Math.ceil(Math.max(1, ...lines.map((l) => textWidth(font, t.fontSize, l) + (t.letterSpacing || 0) * l.length)));
+    return { lines, lh, font, w, h: Math.ceil(lines.length * lh) };
+  }
+  function styleAt(t, runs, i) {
+    let s = { fontWeight: t.fontWeight, fontSize: t.fontSize, italic: !!t.italic, fill: null, decoration: t.decoration || null };
+    for (const r of runs) if (i >= r.start && i < r.end) s = { ...s, ...r.style };
+    return s;
+  }
+  var fontOf = (t, s) => `${s.italic ? "italic " : ""}${s.fontWeight || 400} ${s.fontSize}px ${fontStack(t.fontFamily)}`;
+  function richLayout(t, runs, wrap) {
+    const text = caseOf(t, String(t.text ?? ""));
+    const atoms = [];
+    let cur = null;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const kind = ch === "\n" ? "nl" : /\s/.test(ch) ? "sp" : "w";
+      const st = styleAt(t, runs, i);
+      const sk = JSON.stringify(st);
+      if (cur && cur.kind === kind && cur.sk === sk && kind !== "nl") cur.text += ch;
+      else {
+        cur = { kind, text: ch, st, sk };
+        atoms.push(cur);
+      }
+    }
+    const widthOf = (a) => textWidth(fontOf(t, a.st), a.st.fontSize, a.text) + (t.letterSpacing || 0) * a.text.length;
+    const lines = [[]];
+    let lineW = 0;
+    for (let i = 0; i < atoms.length; i++) {
+      const a = atoms[i];
+      if (a.kind === "nl") {
+        lines.push([]);
+        lineW = 0;
+        continue;
+      }
+      if (a.kind === "w" && wrap != null) {
+        let j = i, ww = 0;
+        while (j < atoms.length && atoms[j].kind === "w") ww += widthOf(atoms[j++]);
+        if (lineW > 0 && lineW + ww > wrap) {
+          const line2 = lines[lines.length - 1];
+          while (line2.length && line2[line2.length - 1].kind === "sp") line2.pop();
+          lines.push([]);
+          lineW = 0;
+        }
+        for (let k = i; k < j; k++) {
+          lines[lines.length - 1].push(atoms[k]);
+          lineW += widthOf(atoms[k]);
+        }
+        i = j - 1;
+        continue;
+      }
+      if (a.kind === "sp" && lineW === 0 && lines.length > 1 && wrap != null) continue;
+      lines[lines.length - 1].push(a);
+      lineW += widthOf(a);
+    }
+    const base = t.fontSize * (t.lineHeight || 1.25);
+    let y = 0;
+    const rich = lines.map((atomsInLine) => {
+      const maxSize = Math.max(t.fontSize, ...atomsInLine.map((a) => a.st.fontSize));
+      const lh = base * (maxSize / t.fontSize);
+      let x = 0;
+      const pieces = atomsInLine.map((a) => {
+        const w = widthOf(a);
+        const p = { text: a.text, font: fontOf(t, a.st), size: a.st.fontSize, fill: a.st.fill, decoration: a.st.decoration, x, w };
+        x += w;
+        return p;
+      });
+      const line2 = { pieces, w: x, lh, y };
+      y += lh;
+      return line2;
+    });
+    const plain = rich.map((l) => l.pieces.map((p) => p.text).join(""));
+    return { lines: plain, rich, lh: base, font: fontString(t), w: Math.ceil(Math.max(1, ...rich.map((l) => l.w))), h: Math.ceil(y) };
+  }
+  function shiftRuns(runs, oldText, newText) {
+    if (!runs || !runs.length) return runs;
+    let pre = 0;
+    while (pre < oldText.length && pre < newText.length && oldText[pre] === newText[pre]) pre++;
+    let suf = 0;
+    while (suf < oldText.length - pre && suf < newText.length - pre && oldText[oldText.length - 1 - suf] === newText[newText.length - 1 - suf]) suf++;
+    const oldEnd = oldText.length - suf, delta = newText.length - oldText.length;
+    const out = [];
+    for (const r of runs) {
+      let { start, end } = r;
+      if (start >= oldEnd) {
+        start += delta;
+        end += delta;
+      } else if (end > pre) {
+        end = Math.max(start, end >= oldEnd ? end + delta : Math.min(end, pre));
+        if (start > pre) start = pre;
+      }
+      start = Math.max(0, Math.min(start, newText.length));
+      end = Math.max(start, Math.min(end, newText.length));
+      if (end > start) out.push({ ...r, start, end });
+    }
+    return out;
+  }
+  function styleRange(runs, start, end, patch) {
+    const cuts = /* @__PURE__ */ new Set([start, end]);
+    for (const r of runs || []) {
+      cuts.add(r.start);
+      cuts.add(r.end);
+    }
+    const points = [...cuts].sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i + 1 < points.length; i++) {
+      const a = points[i], b = points[i + 1];
+      let st = {};
+      for (const r of runs || []) if (a >= r.start && b <= r.end) st = { ...st, ...r.style };
+      if (a >= start && b <= end) {
+        st = { ...st, ...patch };
+        for (const k in st) if (st[k] === null) delete st[k];
+      }
+      if (Object.keys(st).length) {
+        const last = out[out.length - 1];
+        if (last && last.end === a && JSON.stringify(last.style) === JSON.stringify(st)) last.end = b;
+        else out.push({ start: a, end: b, style: st });
+      }
+    }
+    return out;
+  }
+  function measureTexts(tx) {
+    const nodes = tx.doc.nodes;
+    for (const id in nodes) {
+      const n = nodes[id];
+      if (n.type !== "text") continue;
+      let mode = n.autoSize || "width";
+      const p = n.parent && nodes[n.parent];
+      if (mode === "width" && n.sizing && n.sizing.h === "fill" && p && p.layout && p.layout.mode !== "none") mode = "height";
+      if (mode === "fixed") continue;
+      const L = textLayout(mode === n.autoSize ? n : { ...n, autoSize: mode }, tx.doc.styles);
+      const patch = {};
+      if (mode === "width" && n.w !== L.w) patch.w = L.w;
+      if (n.h !== L.h) patch.h = L.h;
+      if (patch.w !== void 0 || patch.h !== void 0) tx.set(id, patch);
+    }
+  }
 
   // src/commands.js
   var GEOM = /* @__PURE__ */ new Set(["x", "y", "w", "h", "rotation"]);
@@ -4671,8 +4944,9 @@ pre.code.small { max-height: 40vh; margin: 0; }
       doc(tx, p) {
         const n = tx.get(p.id);
         if (!n || n.type !== "text") return false;
+        const runs = n.runs ? shiftRuns(n.runs, String(n.text), p.text) : void 0;
         if (n.src) {
-          writeOverride(tx, p.id, { text: p.text });
+          writeOverride(tx, p.id, { text: p.text, ...n.runs ? { runs } : {} });
           return;
         }
         if (!p.text.trim()) {
@@ -4680,7 +4954,28 @@ pre.code.small { max-height: 40vh; margin: 0; }
           return { select: [] };
         }
         const named = n.name === String(n.text).slice(0, 40);
-        tx.set(p.id, { text: p.text, ...named ? { name: p.text.split("\n")[0].slice(0, 40) } : {} });
+        tx.set(p.id, { text: p.text, ...n.runs ? { runs: runs.length ? runs : void 0 } : {}, ...named ? { name: p.text.split("\n")[0].slice(0, 40) } : {} });
+      }
+    },
+    {
+      id: "text.styleRange",
+      label: "Style part of a text",
+      group: "Text",
+      hidden: true,
+      description: "Style characters [start, end) of a text layer: fontWeight, fontSize, italic, fill (#hex), decoration (underline, strike); null removes a key.",
+      params: { id: { type: "string", required: true }, start: { type: "number", required: true }, end: { type: "number", required: true }, style: { type: "object", required: true } },
+      doc(tx, p) {
+        const n = tx.get(p.id);
+        if (!n || n.type !== "text") return false;
+        const len2 = String(n.text).length;
+        const a = Math.max(0, Math.min(len2, Math.floor(p.start))), b = Math.max(a, Math.min(len2, Math.floor(p.end)));
+        if (a === b) return false;
+        const allowed = ["fontWeight", "fontSize", "italic", "fill", "decoration"];
+        const patch = Object.fromEntries(Object.entries(p.style).filter(([k]) => allowed.includes(k)));
+        if (patch.fill != null && !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(patch.fill)) throw new Error("fill must be #RRGGBB");
+        const runs = styleRange(n.runs, a, b, patch);
+        if (n.src) writeOverride(tx, p.id, { runs });
+        else tx.set(p.id, { runs: runs.length ? runs : void 0 });
       }
     },
     {
@@ -4853,10 +5148,11 @@ pre.code.small { max-height: 40vh; margin: 0; }
       group: "Styles",
       hidden: true,
       description: 'Create a shared style: {type:"color", name, value:"#RRGGBB"} or {type:"text", name, fontSize, fontFamily, fontWeight, lineHeight}.',
-      params: { type: { type: "string", required: true, enum: ["color", "text"] }, name: { type: "string", required: true }, value: { type: "string" }, fontSize: { type: "number" }, fontFamily: { type: "string" }, fontWeight: { type: "number" }, lineHeight: { type: "number" }, id: { type: "string" } },
+      params: { type: { type: "string", required: true, enum: ["color", "text", "effect"] }, name: { type: "string", required: true }, value: { type: "any" }, fontSize: { type: "number" }, fontFamily: { type: "string" }, fontWeight: { type: "number" }, lineHeight: { type: "number" }, effects: { type: "array" }, id: { type: "string" } },
       doc(tx, p) {
         const id = p.id || "s" + uid();
         if (p.type === "color") tx.setStyle(id, { type: "color", name: p.name, value: p.value || "#000000" });
+        else if (p.type === "effect") tx.setStyle(id, { type: "effect", name: p.name, effects: p.effects || [{ type: "drop", x: 0, y: 4, blur: 8, spread: 0, color: "#00000040" }] });
         else tx.setStyle(id, { type: "text", name: p.name, fontSize: p.fontSize || 16, fontFamily: p.fontFamily || "Inter", fontWeight: p.fontWeight || 400, lineHeight: p.lineHeight || 1.25 });
         return { value: id };
       }
@@ -4866,15 +5162,18 @@ pre.code.small { max-height: 40vh; margin: 0; }
       label: "Create style from selection",
       group: "Styles",
       description: "Make a shared style from the first selected layer's fill, stroke or text properties and apply it to the selection.",
-      params: { kind: { type: "string", enum: ["fill", "stroke", "text"] }, name: { type: "string" } },
+      params: { kind: { type: "string", enum: ["fill", "stroke", "text", "effect"] }, name: { type: "string" } },
       doc(tx, p, env2) {
         const ids = sel(tx, {}, env2);
         const n = ids.length && tx.get(ids[0]);
         if (!n) return false;
         const kind = p.kind || (n.type === "text" ? "text" : "fill");
         const id = "s" + uid();
-        const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === "text" ? "text" : "color")).length + 1;
-        if (kind === "text") {
+        const count = Object.values(tx.doc.styles).filter((s) => s.type === (kind === "text" ? "text" : kind === "effect" ? "effect" : "color")).length + 1;
+        if (kind === "effect") {
+          if (!n.effects || !n.effects.length) return false;
+          tx.setStyle(id, { type: "effect", name: p.name || `Effect ${count}`, effects: n.effects });
+        } else if (kind === "text") {
           if (n.type !== "text") return false;
           const st = { type: "text", name: p.name || `Text ${count}` };
           for (const k of TEXT_KEYS) st[k] = n[k];
@@ -4884,7 +5183,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           if (!value) return false;
           tx.setStyle(id, { type: "color", name: p.name || `Color ${count}`, value });
         }
-        const key = kind === "fill" ? "fillStyle" : kind === "stroke" ? "strokeStyle" : "textStyle";
+        const key = { fill: "fillStyle", stroke: "strokeStyle", text: "textStyle", effect: "effectStyle" }[kind];
         for (const sid of ids) if (kind !== "text" || tx.get(sid).type === "text") writeProps(tx, sid, { [key]: id });
         return { value: id };
       }
@@ -4929,6 +5228,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
             patch.textStyle = void 0;
             for (const k of TEXT_KEYS) patch[k] = s[k];
           }
+          if (n.effectStyle === p.id) {
+            patch.effectStyle = void 0;
+            patch.effects = s.effects;
+          }
           if (Object.keys(patch).length) tx.set(id, patch);
         }
         tx.setStyle(p.id, void 0);
@@ -4940,11 +5243,11 @@ pre.code.small { max-height: 40vh; margin: 0; }
       group: "Styles",
       hidden: true,
       description: "Apply a shared style to layers (kind fill, stroke or text), or detach it with styleId null (the layer keeps the values).",
-      params: { ids: ids$, kind: { type: "string", required: true, enum: ["fill", "stroke", "text"] }, styleId: { type: "string", nullable: true, required: true } },
+      params: { ids: ids$, kind: { type: "string", required: true, enum: ["fill", "stroke", "text", "effect"] }, styleId: { type: "string", nullable: true, required: true } },
       doc(tx, p, env2) {
         const ids = sel(tx, p, env2);
         if (!ids.length) return false;
-        const key = p.kind === "fill" ? "fillStyle" : p.kind === "stroke" ? "strokeStyle" : "textStyle";
+        const key = { fill: "fillStyle", stroke: "strokeStyle", text: "textStyle", effect: "effectStyle" }[p.kind];
         const old = (id) => tx.doc.styles[tx.get(id)[key]];
         for (const id of ids) {
           const n = tx.get(id);
@@ -4953,6 +5256,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           if (!p.styleId && old(id)) {
             const s = old(id);
             if (p.kind === "text") for (const k of TEXT_KEYS) patch[k] = s[k];
+            else if (p.kind === "effect") patch.effects = s.effects;
             else patch[p.kind] = s.value;
           }
           writeProps(tx, id, patch);
@@ -5027,7 +5331,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const toks = String(d).match(/[MmLlHhVvCcSsQqTtAaZz]|-?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/g) || [];
     const subs = [];
     let i = 0, cmd = null, cx = 0, cy = 0, sx = 0, sy = 0, lastC = null, lastQ = null, cur = null;
-    const num2 = () => parseFloat(toks[i++]);
+    const num3 = () => parseFloat(toks[i++]);
     const isNum = () => i < toks.length && !/[A-Za-z]/.test(toks[i]);
     const start = (x, y) => {
       cur = { closed: false, segs: [{ c: "M", pts: [[x, y]] }] };
@@ -5053,7 +5357,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       const ox = rel ? cx : 0, oy = rel ? cy : 0;
       switch (cmd.toUpperCase()) {
         case "M": {
-          const x = num2() + ox, y = num2() + oy;
+          const x = num3() + ox, y = num3() + oy;
           start(x, y);
           cx = x;
           cy = y;
@@ -5062,7 +5366,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "L": {
-          const x = num2() + ox, y = num2() + oy;
+          const x = num3() + ox, y = num3() + oy;
           line2(x, y);
           cx = x;
           cy = y;
@@ -5070,21 +5374,21 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "H": {
-          const x = num2() + ox;
+          const x = num3() + ox;
           line2(x, cy);
           cx = x;
           lastC = lastQ = null;
           break;
         }
         case "V": {
-          const y = num2() + oy;
+          const y = num3() + oy;
           line2(cx, y);
           cy = y;
           lastC = lastQ = null;
           break;
         }
         case "C": {
-          const a = num2() + ox, b = num2() + oy, c = num2() + ox, e = num2() + oy, f2 = num2() + ox, g = num2() + oy;
+          const a = num3() + ox, b = num3() + oy, c = num3() + ox, e = num3() + oy, f2 = num3() + ox, g = num3() + oy;
           cubic(a, b, c, e, f2, g);
           lastC = [c, e];
           lastQ = null;
@@ -5094,7 +5398,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         }
         case "S": {
           const r = lastC ? [2 * cx - lastC[0], 2 * cy - lastC[1]] : [cx, cy];
-          const c = num2() + ox, e = num2() + oy, f2 = num2() + ox, g = num2() + oy;
+          const c = num3() + ox, e = num3() + oy, f2 = num3() + ox, g = num3() + oy;
           cubic(r[0], r[1], c, e, f2, g);
           lastC = [c, e];
           lastQ = null;
@@ -5103,7 +5407,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "Q": {
-          const qx = num2() + ox, qy = num2() + oy, x = num2() + ox, y = num2() + oy;
+          const qx = num3() + ox, qy = num3() + oy, x = num3() + ox, y = num3() + oy;
           cubic(cx + 2 / 3 * (qx - cx), cy + 2 / 3 * (qy - cy), x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y), x, y);
           lastQ = [qx, qy];
           lastC = null;
@@ -5113,7 +5417,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
         }
         case "T": {
           const q = lastQ ? [2 * cx - lastQ[0], 2 * cy - lastQ[1]] : [cx, cy];
-          const x = num2() + ox, y = num2() + oy;
+          const x = num3() + ox, y = num3() + oy;
           cubic(cx + 2 / 3 * (q[0] - cx), cy + 2 / 3 * (q[1] - cy), x + 2 / 3 * (q[0] - x), y + 2 / 3 * (q[1] - y), x, y);
           lastQ = q;
           lastC = null;
@@ -5122,7 +5426,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
           break;
         }
         case "A": {
-          const rx = num2(), ry = num2(), rot = num2(), large = num2(), sweep2 = num2(), x = num2() + ox, y = num2() + oy;
+          const rx = num3(), ry = num3(), rot = num3(), large = num3(), sweep2 = num3(), x = num3() + ox, y = num3() + oy;
           for (const c of arcToCubics(cx, cy, rx, ry, rot, large, sweep2, x, y)) cubic(...c);
           cx = x;
           cy = y;
@@ -5156,8 +5460,8 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ry *= Math.sqrt(lam);
     }
     const sign = fa === fs ? -1 : 1;
-    const num2 = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
-    const co = sign * Math.sqrt(Math.max(0, num2 / (rx * rx * y1p * y1p + ry * ry * x1p * x1p)));
+    const num3 = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+    const co = sign * Math.sqrt(Math.max(0, num3 / (rx * rx * y1p * y1p + ry * ry * x1p * x1p)));
     const cxp = co * rx * y1p / ry, cyp = -co * ry * x1p / rx;
     const cx = cos * cxp - sin * cyp + (x1 + x2) / 2, cy = sin * cxp + cos * cyp + (y1 + y2) / 2;
     const ang = (ux, uy, vx, vy) => {
@@ -6312,7 +6616,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     if (!out.length) return null;
     return out.length === 1 ? out[0] : out.map((p) => typeof p === "string" ? { type: "solid", color: p } : p);
   };
-  function effectsOf(list) {
+  function effectsOf2(list) {
     const out = [];
     for (const e of list || []) {
       if (e.visible === false) continue;
@@ -6363,7 +6667,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ...n.visible === false ? { visible: false } : {},
       ...n.opacity != null && n.opacity < 1 ? { opacity: n.opacity } : {},
       ...BLEND[n.blendMode] ? { blendMode: BLEND[n.blendMode] } : {},
-      ...effectsOf(n.effects) ? { effects: effectsOf(n.effects) } : {},
+      ...effectsOf2(n.effects) ? { effects: effectsOf2(n.effects) } : {},
       ...n.constraints ? { constraints: { h: CON_H[n.constraints.horizontal] || "left", v: CON_V[n.constraints.vertical] || "top" } } : {}
     };
     const fill = paintsOf(n.fills);
@@ -6439,88 +6743,6 @@ pre.code.small { max-height: 40vh; margin: 0; }
     }
   }
 
-  // src/text.js
-  var ctx;
-  function measureCtx() {
-    if (ctx !== void 0) return ctx;
-    try {
-      ctx = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(1, 1).getContext("2d") : null;
-    } catch {
-      ctx = null;
-    }
-    return ctx;
-  }
-  var widthCache = /* @__PURE__ */ new Map();
-  function textWidth(font, size, s) {
-    const key = font + "\0" + s;
-    let w = widthCache.get(key);
-    if (w === void 0) {
-      const c = measureCtx();
-      if (c) {
-        c.font = font;
-        w = c.measureText(s).width;
-      } else w = s.length * size * 0.55;
-      if (widthCache.size > 2e4) widthCache.clear();
-      widthCache.set(key, w);
-    }
-    return w;
-  }
-  function breakLines(t, wrapWidth) {
-    const font = fontString(t);
-    const out = [];
-    for (const para of String(t.text ?? "").split("\n")) {
-      if (wrapWidth == null) {
-        out.push(para);
-        continue;
-      }
-      const words = para.split(/(\s+)/);
-      let line2 = "";
-      for (const w of words) {
-        const next = line2 + w;
-        if (line2 && textWidth(font, t.fontSize, next.trimEnd()) > wrapWidth) {
-          out.push(line2.trimEnd());
-          line2 = w.trimStart();
-        } else line2 = next;
-      }
-      out.push(line2);
-    }
-    return out;
-  }
-  var layoutCache = /* @__PURE__ */ new Map();
-  function textLayout(n, styles) {
-    const t = textOf(n, styles);
-    const mode = n.autoSize || "width";
-    const wrap = mode === "width" ? null : n.w;
-    const key = `${t.fontWeight}|${t.fontSize}|${t.fontFamily}|${t.lineHeight}|${wrap}|${t.text}`;
-    let r = layoutCache.get(key);
-    if (!r) {
-      const lines = breakLines(t, wrap);
-      const font = fontString(t);
-      const lh = t.fontSize * (t.lineHeight || 1.25);
-      const w = Math.ceil(Math.max(1, ...lines.map((l) => textWidth(font, t.fontSize, l))));
-      r = { lines, lh, font, w, h: Math.ceil(lines.length * lh) };
-      if (layoutCache.size > 5e3) layoutCache.clear();
-      layoutCache.set(key, r);
-    }
-    return r;
-  }
-  function measureTexts(tx) {
-    const nodes = tx.doc.nodes;
-    for (const id in nodes) {
-      const n = nodes[id];
-      if (n.type !== "text") continue;
-      let mode = n.autoSize || "width";
-      const p = n.parent && nodes[n.parent];
-      if (mode === "width" && n.sizing && n.sizing.h === "fill" && p && p.layout && p.layout.mode !== "none") mode = "height";
-      if (mode === "fixed") continue;
-      const L = textLayout(mode === n.autoSize ? n : { ...n, autoSize: mode }, tx.doc.styles);
-      const patch = {};
-      if (mode === "width" && n.w !== L.w) patch.w = L.w;
-      if (n.h !== L.h) patch.h = L.h;
-      if (patch.w !== void 0 || patch.h !== void 0) tx.set(id, patch);
-    }
-  }
-
   // src/render.js
   var pathCache = /* @__PURE__ */ new Map();
   function cachedPath(d) {
@@ -6567,9 +6789,9 @@ pre.code.small { max-height: 40vh; margin: 0; }
   function drawNodes(ctx2, doc, ids, opts = {}, parentM = IDENT, alpha = 1) {
     for (const id of ids) drawNode(ctx2, doc, id, opts, parentM, alpha);
   }
-  function effectPad(n) {
+  function effectPad(n, styles) {
     let pad = (n.strokeWidth || 0) + 2;
-    for (const e of n.effects || []) if (e.visible !== false) pad += Math.abs(e.x || 0) + Math.abs(e.y || 0) + (e.blur || e.radius || 0) * 2 + (e.spread || 0);
+    for (const e of effectsOf(n, styles || {})) if (e.visible !== false) pad += Math.abs(e.x || 0) + Math.abs(e.y || 0) + (e.blur || e.radius || 0) * 2 + (e.spread || 0);
     return pad;
   }
   function drawNode(ctx2, doc, id, opts, parentM, alpha) {
@@ -6579,11 +6801,11 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const m = mul(parentM, lm);
     if (opts.cull) {
       const b = boxOfPoints(corners(n).map((p) => apply(m, p)));
-      const pad = effectPad(n);
+      const pad = effectPad(n, doc.styles);
       if (!intersects({ x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad }, opts.cull)) return;
     }
     const a = alpha * (n.opacity ?? 1);
-    const effects = (n.effects || []).filter((e) => e.visible !== false);
+    const effects = effectsOf(n, doc.styles).filter((e) => e.visible !== false);
     ctx2.save();
     ctx2.transform(lm[0], lm[1], lm[2], lm[3], lm[4], lm[5]);
     ctx2.globalAlpha = a;
@@ -6641,6 +6863,14 @@ pre.code.small { max-height: 40vh; margin: 0; }
       ctx2.restore();
     }
     if (n.type !== "line" && paints(fill).length) fillWith(ctx2, fill, n, doc, path, rule);
+    for (const e of effects.filter((x) => x.type === "noise")) {
+      ctx2.save();
+      ctx2.clip(path, rule);
+      ctx2.globalAlpha *= Math.max(0, Math.min(1, e.amount ?? 0.15));
+      ctx2.fillStyle = noisePattern(ctx2, e.size || 1, e.mono !== false);
+      ctx2.fillRect(0, 0, n.w, n.h);
+      ctx2.restore();
+    }
     for (const e of effects.filter((x) => x.type === "inner")) {
       ctx2.save();
       ctx2.clip(path, rule);
@@ -6729,6 +6959,31 @@ pre.code.small { max-height: 40vh; margin: 0; }
     }
     const ps = paints(fill);
     const solid = ps.length === 1 && ps[0].type === "solid";
+    if (L.rich) {
+      const base = ps[0] && (ps[0].color || firstColor(ps[0])) || "#000";
+      ctx2.textAlign = "left";
+      for (const line2 of L.rich) {
+        const x0 = t.align === "center" ? (n.w - line2.w) / 2 : t.align === "right" ? n.w - line2.w : 0;
+        for (const p of line2.pieces) {
+          ctx2.font = p.font;
+          ctx2.fillStyle = p.fill || base;
+          const y = line2.y + line2.lh / 2;
+          ctx2.fillText(p.text, x0 + p.x, y);
+          if (p.decoration) {
+            ctx2.save();
+            ctx2.strokeStyle = ctx2.fillStyle;
+            ctx2.lineWidth = Math.max(1, p.size / 14);
+            const ly = y + (p.decoration === "underline" ? p.size * 0.45 : 0);
+            ctx2.beginPath();
+            ctx2.moveTo(x0 + p.x, ly);
+            ctx2.lineTo(x0 + p.x + p.w, ly);
+            ctx2.stroke();
+            ctx2.restore();
+          }
+        }
+      }
+      return;
+    }
     if (solid || !ps.length) {
       ctx2.fillStyle = ps[0] && ps[0].color || "#000";
       L.lines.forEach((line2, i) => ctx2.fillText(line2, x, i * L.lh + L.lh / 2));
@@ -6761,6 +7016,25 @@ pre.code.small { max-height: 40vh; margin: 0; }
     });
     ctx2.restore();
   }
+  var noiseTiles = /* @__PURE__ */ new Map();
+  function noisePattern(ctx2, size, mono) {
+    const key = `${size}|${mono}`;
+    let tile = noiseTiles.get(key);
+    if (!tile) {
+      const N = 64;
+      tile = new OffscreenCanvas(N * size, N * size);
+      const t = tile.getContext("2d");
+      let seed = 12345;
+      const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647 * 255;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const v = rnd() | 0;
+        t.fillStyle = mono ? `rgb(${v},${v},${v})` : `rgb(${v},${rnd() | 0},${rnd() | 0})`;
+        t.fillRect(x * size, y * size, size, size);
+      }
+      noiseTiles.set(key, tile);
+    }
+    return ctx2.createPattern(tile, "repeat");
+  }
   function scaleOf2(ctx2) {
     const t = ctx2.getTransform();
     return Math.hypot(t.a, t.b) || 1;
@@ -6788,7 +7062,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
     const walk2 = (nid) => {
       const n = doc.nodes[nid];
       if (!n || n.visible === false) return;
-      for (const e of n.effects || []) {
+      for (const e of effectsOf(n, doc.styles)) {
         if (e.visible === false) continue;
         const b = worldBox(doc, nid);
         if (e.type === "drop") {
@@ -6828,7 +7102,7 @@ pre.code.small { max-height: 40vh; margin: 0; }
       return `<path d="${esc2(outlineD(n))}"${rule}${attrs}/>`;
     };
     const filterFor = (n) => {
-      const fx = (n.effects || []).filter((e) => e.visible !== false && e.type !== "bgblur");
+      const fx = effectsOf(n, doc.styles).filter((e) => e.visible !== false && e.type !== "bgblur" && e.type !== "noise");
       if (!fx.length) return "";
       const id = uid2();
       const parts = fx.map((e) => {
@@ -6859,7 +7133,10 @@ pre.code.small { max-height: 40vh; margin: 0; }
         const s = textOf(n, doc.styles);
         const L = textLayout(n, doc.styles);
         const x = s.align === "center" ? n.w / 2 : s.align === "right" ? n.w : 0;
-        const spans = L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc2(l) || " "}</tspan>`).join("");
+        const spans = L.rich ? L.rich.map((line2) => {
+          const x0 = s.align === "center" ? (n.w - line2.w) / 2 : s.align === "right" ? n.w - line2.w : 0;
+          return line2.pieces.map((p) => `<tspan x="${num(x0 + p.x)}" y="${num(line2.y + line2.lh / 2)}" text-anchor="start" style="font:${esc2(p.font)}"${p.fill ? ` fill="${esc2(p.fill)}"` : ""}${p.decoration === "underline" ? ' text-decoration="underline"' : p.decoration === "strike" ? ' text-decoration="line-through"' : ""}>${esc2(p.text)}</tspan>`).join("");
+        }).join("") : L.lines.map((l, i) => `<tspan x="${num(x)}" y="${num(i * L.lh + L.lh / 2)}">${esc2(l) || " "}</tspan>`).join("");
         const color = firstColor(fill) || "#000";
         return `<text ${head} fill="${esc2(color)}" font-family="${esc2(fontStack(s.fontFamily))}" font-size="${num(s.fontSize)}" font-weight="${num(s.fontWeight || 400)}" text-anchor="${ALIGN2[s.align] || "start"}" dominant-baseline="central" xml:space="preserve"${s.decoration === "underline" ? ' text-decoration="underline"' : s.decoration === "strike" ? ' text-decoration="line-through"' : ""}><title>${esc2(n.name)}</title>${spans}</text>`;
       }
@@ -7006,7 +7283,7 @@ ${defs.length ? `<defs>${defs.join("")}</defs>
       if ((n.type === "frame" || n.type === "instance") && n.clip !== false && n.children && n.children.length) css.overflow = "hidden";
     }
     const shadows = [], filters = [];
-    for (const e of n.effects || []) {
+    for (const e of effectsOf(n, doc.styles)) {
       if (e.visible === false) continue;
       if (e.type === "drop") shadows.push(`${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} ${px(e.spread || 0)} ${e.color || "rgba(0,0,0,0.25)"}`);
       if (e.type === "inner") shadows.push(`inset ${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} 0 ${e.color || "rgba(0,0,0,0.25)"}`);
@@ -7209,6 +7486,268 @@ ${inner}
     }
   );
 
+  // src/avd.js
+  var esc3 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  var num2 = (v) => Math.round(v * 1e3) / 1e3;
+  function argb(hex, alpha = 1) {
+    const m = /^#?([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex || "");
+    if (!m) return null;
+    const a = Math.round((m[2] ? parseInt(m[2], 16) / 255 : 1) * alpha * 255);
+    return "#" + a.toString(16).padStart(2, "0").toUpperCase() + m[1].toUpperCase();
+  }
+  function toAVD(doc, ids) {
+    const list = (ids && ids.length ? ids : doc.children).filter((id) => doc.nodes[id] && doc.nodes[id].visible !== false);
+    const b = exportBounds(doc, list);
+    if (!b) throw new Error("Nothing to export");
+    const skipped = /* @__PURE__ */ new Set();
+    const walk2 = (id, m, alpha, pad) => {
+      const n = doc.nodes[id];
+      if (!n || n.visible === false) return "";
+      const mm = mul(m, localMatrix(n));
+      const a = alpha * (n.opacity ?? 1);
+      if (n.type === "text") {
+        skipped.add("text");
+        return "";
+      }
+      const d = transformD(outlineD(n), mm);
+      const fill = n.type === "line" ? null : argb(firstColor(fillOf(n, doc.styles)));
+      const stroke = n.strokeWidth > 0 ? argb(firstColor(strokeOf(n, doc.styles))) : null;
+      if ([].concat(fillOf(n, doc.styles) || []).some((p) => p && p.type === "image")) skipped.add("images");
+      let out = "";
+      if (fill || stroke) {
+        const scale = Math.sqrt(Math.abs(mm[0] * mm[3] - mm[1] * mm[2])) || 1;
+        out += `${pad}<path android:name="${esc3(n.name)}" android:pathData="${esc3(d)}"` + (fill ? ` android:fillColor="${fill}"${a < 1 ? ` android:fillAlpha="${num2(a)}"` : ""}${n.fillRule === "evenodd" ? ' android:fillType="evenOdd"' : ""}` : "") + (stroke ? ` android:strokeColor="${stroke}" android:strokeWidth="${num2(n.strokeWidth * scale)}"${a < 1 ? ` android:strokeAlpha="${num2(a)}"` : ""}${n.strokeCap ? ` android:strokeLineCap="${esc3(n.strokeCap)}"` : n.type === "line" ? ' android:strokeLineCap="round"' : ""}` : "") + "/>\n";
+      }
+      if (n.children && n.children.length) {
+        const kids = n.children.map((c) => walk2(c, mm, a, pad + "  ")).join("");
+        if (kids) out += n.clip !== false ? `${pad}<group android:name="${esc3(n.name)}">
+${pad}  <clip-path android:pathData="${esc3(d)}"/>
+${kids}${pad}</group>
+` : kids;
+      }
+      return out;
+    };
+    const shift = [1, 0, 0, 1, -b.x, -b.y];
+    const body = list.map((id) => {
+      const n = doc.nodes[id];
+      return walk2(id, mul(shift, n.parent ? worldMatrix(doc, n.parent) : IDENT), 1, "  ");
+    }).join("");
+    const note = skipped.size ? `<!-- Figger: ${[...skipped].join(" and ")} skipped; Vector Drawables cannot hold them. -->
+` : "";
+    return `<?xml version="1.0" encoding="utf-8"?>
+${note}<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="${num2(b.w)}dp" android:height="${num2(b.h)}dp"
+    android:viewportWidth="${num2(b.w)}" android:viewportHeight="${num2(b.h)}">
+${body}</vector>
+`;
+  }
+
+  // src/storage.js
+  var DIR = "documents/";
+  var WORKING = "working.figger.json";
+  var LS_KEY = "figger.working";
+  var nak = () => globalThis.naklios;
+  var EXT = ".figger.json";
+  function safeName(name) {
+    return (String(name || "Untitled").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").trim().slice(0, 80) || "Untitled") + EXT;
+  }
+  function hostStore() {
+    const fs = nak().fs;
+    return {
+      kind: "host",
+      label: () => {
+        const c = nak().capabilities;
+        const b = (c.fsBackends || []).find((x) => x.id === c.fsBackend);
+        return b ? `${b.label}${b.name ? " · " + b.name : ""}` : "NakliOS storage";
+      },
+      async loadWorking() {
+        return await fs.exists(WORKING) ? fs.read(WORKING) : null;
+      },
+      async saveWorking(text) {
+        await fs.write(WORKING, text);
+      },
+      async list() {
+        return (await fs.list(DIR)).map((f2) => typeof f2 === "string" ? f2 : f2.path || f2.name).filter((p) => p.endsWith(EXT)).map((p) => p.replace(/^.*\//, ""));
+      },
+      async read(file) {
+        return fs.read(DIR + file);
+      },
+      async write(file, text) {
+        await fs.write(DIR + file, text);
+        return file;
+      },
+      async remove(file) {
+        await fs.delete(DIR + file);
+      },
+      pickers: false
+    };
+  }
+  function localStore() {
+    let handle = null;
+    const hasFSA = typeof showSaveFilePicker === "function";
+    const types = [{ description: "Figger document", accept: { "application/json": [EXT, ".json"] } }];
+    return {
+      kind: "local",
+      label: () => "This browser",
+      async loadWorking() {
+        try {
+          return localStorage.getItem(LS_KEY);
+        } catch {
+          return null;
+        }
+      },
+      async saveWorking(text) {
+        try {
+          localStorage.setItem(LS_KEY, text);
+        } catch (e) {
+          if (text.length > 4e6) throw new Error("Document is too large for the browser copy; save it to a file");
+          throw e;
+        }
+      },
+      pickers: true,
+      hasHandle: () => !!handle,
+      forget() {
+        handle = null;
+      },
+      async openPicked() {
+        if (typeof showOpenFilePicker === "function") {
+          const [h2] = await showOpenFilePicker({ types, multiple: false });
+          handle = h2;
+          const f3 = await h2.getFile();
+          return { name: f3.name, text: await f3.text() };
+        }
+        const f2 = await new Promise((resolve2, reject) => {
+          const input = Object.assign(document.createElement("input"), { type: "file", accept: `${EXT},.json,application/json` });
+          input.onchange = () => input.files[0] ? resolve2(input.files[0]) : reject(new Error("No file chosen"));
+          input.click();
+        });
+        handle = null;
+        return { name: f2.name, text: await f2.text() };
+      },
+      async savePicked(name, text, { as = false } = {}) {
+        if (hasFSA) {
+          if (!handle || as) handle = await showSaveFilePicker({ suggestedName: safeName(name), types });
+          const w = await handle.createWritable();
+          await w.write(text);
+          await w.close();
+          return handle.name;
+        }
+        download(new Blob([text], { type: "application/json" }), safeName(name));
+        return safeName(name);
+      }
+    };
+  }
+  function pickStore() {
+    const n = nak();
+    return n && n.capabilities.hosted && n.capabilities.fs ? hostStore() : localStore();
+  }
+  function download(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
+  }
+
+  // src/commands-layer6.js
+  var ids$4 = { type: "array", desc: "Node ids; defaults to the current selection" };
+  var sel4 = (tx, p, env2) => (p.ids ?? env2.selection ?? []).filter((id) => tx.get(id));
+  var inMain = (tx, mainId, id) => {
+    for (let n = tx.get(id); n; n = n.parent ? tx.get(n.parent) : null) if (n.id === mainId) return true;
+    return false;
+  };
+  register(
+    {
+      id: "component.addProp",
+      label: "Add component property",
+      group: "Components",
+      hidden: true,
+      description: "Add a property to a main component: type text (drives a text layer), boolean (shows or hides a layer) or swap (chooses the main of a nested instance). target is the layer inside the main.",
+      params: { id: { type: "string", required: true }, name: { type: "string", required: true }, type: { type: "string", required: true, enum: ["text", "boolean", "swap"] }, target: { type: "string", required: true }, default: { type: "any" } },
+      doc(tx, p) {
+        const m = tx.get(p.id);
+        if (!m || !m.component) throw new Error("Choose a main component");
+        const t = tx.get(p.target);
+        if (!t || t.id === p.id || !inMain(tx, p.id, p.target)) throw new Error("The target must be a layer inside the main component");
+        if (p.type === "text" && t.type !== "text") throw new Error("A text property needs a text layer");
+        if (p.type === "swap" && t.type !== "instance") throw new Error("A swap property needs a nested instance");
+        const def = p.default !== void 0 ? p.default : p.type === "text" ? t.text : p.type === "boolean" ? t.visible !== false : t.mainId;
+        tx.set(p.id, { props: { ...m.props || {}, [p.name]: { type: p.type, target: p.target, default: def } } });
+      }
+    },
+    {
+      id: "component.removeProp",
+      label: "Remove component property",
+      group: "Components",
+      hidden: true,
+      params: { id: { type: "string", required: true }, name: { type: "string", required: true } },
+      doc(tx, p) {
+        const m = tx.get(p.id);
+        if (!m || !m.props || !m.props[p.name]) return false;
+        const props = { ...m.props };
+        delete props[p.name];
+        tx.set(p.id, { props: Object.keys(props).length ? props : void 0 });
+      }
+    },
+    {
+      id: "instance.setProp",
+      label: "Set instance property",
+      group: "Components",
+      hidden: true,
+      description: "Set a component property on an instance (text, true/false, or a main component id for swap); value null resets it to the default.",
+      params: { id: { type: "string", required: true }, name: { type: "string", required: true }, value: { type: "any", required: true } },
+      doc(tx, p) {
+        const inst = tx.get(p.id);
+        if (!inst || inst.type !== "instance" || inst.src) throw new Error("Choose an instance");
+        const def = (tx.get(inst.mainId)?.props || {})[p.name];
+        if (!def) throw new Error(`The component has no property ${p.name}`);
+        if (def.type === "text" && p.value !== null && typeof p.value !== "string") throw new Error("A text property takes text");
+        if (def.type === "boolean" && p.value !== null && typeof p.value !== "boolean") throw new Error("A boolean property takes true or false");
+        if (def.type === "swap" && p.value !== null && !tx.get(p.value)?.component) throw new Error("A swap property takes a main component id");
+        const vals = { ...inst.propValues || {} };
+        if (p.value === null) delete vals[p.name];
+        else vals[p.name] = p.value;
+        tx.set(p.id, { propValues: Object.keys(vals).length ? vals : void 0 });
+      }
+    },
+    {
+      id: "export.avd",
+      label: "Export Android Vector Drawable",
+      group: "Export",
+      description: "Export the given layers (default: selection, else everything) as an Android Vector Drawable XML string; download saves a file. Text and images are skipped.",
+      params: { ids: { type: "array" }, download: { type: "boolean" } },
+      run(p, env2, o) {
+        const doc = env2.state.doc;
+        const ids = p.ids && p.ids.length ? p.ids : env2.selection.length ? env2.selection : doc.children;
+        const xml = toAVD(doc, ids);
+        if (p.download || o && o.source !== "agent" && p.download !== false && typeof document !== "undefined") download(new Blob([xml], { type: "application/xml" }), (doc.name || "figger").replace(/[^\w.-]+/g, "_").toLowerCase() + ".xml");
+        return xml;
+      }
+    },
+    {
+      id: "node.setMinMax",
+      label: "Set min and max size",
+      group: "Layout",
+      hidden: true,
+      description: "Set minimum and maximum width and height (null clears one); auto layout and resizing respect them.",
+      params: { ids: ids$4, minW: { type: "number", nullable: true }, maxW: { type: "number", nullable: true }, minH: { type: "number", nullable: true }, maxH: { type: "number", nullable: true } },
+      doc(tx, p, env2) {
+        const ids = sel4(tx, p, env2).filter((id) => !tx.get(id).src);
+        if (!ids.length) return false;
+        for (const id of ids) {
+          const patch = {};
+          for (const k of ["minW", "maxW", "minH", "maxH"]) if (p[k] !== void 0) patch[k] = p[k] === null ? void 0 : Math.max(0, p[k]);
+          tx.set(id, patch);
+          const n = tx.get(id);
+          const w = Math.min(n.maxW ?? Infinity, Math.max(n.minW ?? 0, n.w)), h2 = Math.min(n.maxH ?? Infinity, Math.max(n.minH ?? 0, n.h));
+          if (w !== n.w || h2 !== n.h) tx.set(id, { w, h: h2 });
+        }
+      }
+    }
+  );
+
   // src/hit.js
   var hitCtx;
   function ctx2d() {
@@ -7260,8 +7799,8 @@ ${inner}
     if (!chain.length) return null;
     if (deep) return chain[chain.length - 1];
     let i = -1;
-    const sel6 = new Set(selection);
-    const k = chain.findIndex((id) => sel6.has(id));
+    const sel7 = new Set(selection);
+    const k = chain.findIndex((id) => sel7.has(id));
     if (k >= 0) i = drill ? Math.min(k + 1, chain.length - 1) : k;
     if (i < 0) {
       for (const s of selection) {
@@ -7699,8 +8238,8 @@ ${xo}
     };
     nextFrame(flush);
   }
-  function cleanSelection(doc, sel6) {
-    return sel6.filter((id) => doc.nodes[id]);
+  function cleanSelection(doc, sel7) {
+    return sel7.filter((id) => doc.nodes[id]);
   }
   function commit(doc, selection, label) {
     past.push({ doc: state.doc, selection: state.selection, label });
@@ -8743,7 +9282,7 @@ ${xo}
       positionEditor();
       editor.focus();
       if (!fresh) editor.select();
-      notify("overlay");
+      notify("overlay", "selection");
     };
     editor.addEventListener("input", () => {
       if (!state.editing) return;
@@ -8752,6 +9291,21 @@ ${xo}
       if (editBase.fresh) g.preview("node.create", { ...editBase.fresh.create, props: { text: editor.value || " " } });
       else g.preview("text.set", { id, text: editor.value || " " });
     });
+    function flushTextEdit() {
+      if (!state.editing || !editBase) return;
+      const id = state.editing, text = editor.value;
+      const g = editBase.g;
+      if (editBase.fresh) {
+        if (text.trim() && g) g.commit("node.create", { ...editBase.fresh.create, props: { text } });
+      } else if (g && text !== editBase.text) g.commit("text.set", { id, text });
+      editBase = { id, text, fresh: null, g: null };
+    }
+    app2.textRange = () => {
+      if (!state.editing || editor.selectionStart === editor.selectionEnd) return null;
+      const range = { id: state.editing, start: editor.selectionStart, end: editor.selectionEnd };
+      flushTextEdit();
+      return state.doc.nodes[range.id] ? range : null;
+    };
     app2.endTextEdit = (commit2 = true) => {
       const id = state.editing;
       if (!id) return;
@@ -9085,7 +9639,7 @@ ${xo}
       for (const id of state.selection) for (const a of ancestors(doc, id)) expanded.add(a);
       clear(list);
       let count = 0;
-      const sel6 = new Set(state.selection);
+      const sel7 = new Set(state.selection);
       const walk2 = (ids, depth) => {
         for (let i = ids.length - 1; i >= 0; i--) {
           if (count >= MAX_ROWS) return;
@@ -9101,10 +9655,10 @@ ${xo}
           sweepToggle(eye, () => doc.nodes[n.id] && state.doc.nodes[n.id].visible !== false, (v) => app2.run("node.setVisible", { ids: [n.id], value: v }));
           if (!n.src) sweepToggle(lock, () => !!state.doc.nodes[n.id]?.locked, (v) => app2.run("node.setLocked", { ids: [n.id], value: v }));
           const row = h(
-            "div.ly-row" + (sel6.has(n.id) ? ".sel" : "") + (comp ? ".comp" : "") + (n.visible === false ? ".hidden" : ""),
+            "div.ly-row" + (sel7.has(n.id) ? ".sel" : "") + (comp ? ".comp" : "") + (n.visible === false ? ".hidden" : ""),
             {
               role: "treeitem",
-              "aria-selected": sel6.has(n.id) ? "true" : "false",
+              "aria-selected": sel7.has(n.id) ? "true" : "false",
               "aria-expanded": hasKids ? String(open) : null,
               draggable: !n.src,
               style: { paddingLeft: 6 + depth * 14 + "px" },
@@ -9112,9 +9666,9 @@ ${xo}
                 pointerdown: (e) => {
                   if (e.target.closest("button")) return;
                   if (e.shiftKey || app2.isMod(e)) {
-                    const next = sel6.has(n.id) ? state.selection.filter((x) => x !== n.id) : [...state.selection, n.id];
+                    const next = sel7.has(n.id) ? state.selection.filter((x) => x !== n.id) : [...state.selection, n.id];
                     app2.run("select.set", { ids: next });
-                  } else if (!sel6.has(n.id)) app2.run("select.set", { ids: [n.id] });
+                  } else if (!sel7.has(n.id)) app2.run("select.set", { ids: [n.id] });
                 },
                 pointerenter: () => {
                   state.hover = n.id;
@@ -9130,7 +9684,7 @@ ${xo}
                   if (!e.target.closest("button") && !n.src) rename(n, name);
                 },
                 dragstart: (e) => {
-                  dragIds = sel6.has(n.id) ? state.selection.slice() : [n.id];
+                  dragIds = sel7.has(n.id) ? state.selection.slice() : [n.id];
                   e.dataTransfer.effectAllowed = "move";
                   e.dataTransfer.setData("text/plain", n.id);
                 },
@@ -9234,7 +9788,7 @@ ${xo}
     c.addEventListener("change", () => onChange(c.value.toUpperCase()));
     return c;
   };
-  var sel4 = (value, options, onChange, label) => {
+  var sel5 = (value, options, onChange, label) => {
     const s = h("select", { "aria-label": label, on: { change: () => onChange(s.value) } }, options.map(([v, l]) => h("option", { value: v }, l)));
     s.value = value;
     return s;
@@ -9252,7 +9806,7 @@ ${xo}
       };
       const head = h(
         "div.ps-row",
-        sel4(p.type, PAINT_TYPES.map((t) => [t, TYPE_LABEL[t]]), (t) => {
+        sel5(p.type, PAINT_TYPES.map((t) => [t, TYPE_LABEL[t]]), (t) => {
           const l = list();
           l[i] = defaultPaint(t, l[i]);
           set(l);
@@ -9290,7 +9844,7 @@ ${xo}
             };
             input.click();
           }),
-          sel4(p.mode || "fill", [["fill", "Fill"], ["fit", "Fit"], ["crop", "Crop"], ["tile", "Tile"]], (v) => update({ mode: v }), "Image mode")
+          sel5(p.mode || "fill", [["fill", "Fill"], ["fit", "Fit"], ["crop", "Crop"], ["tile", "Tile"]], (v) => update({ mode: v }), "Image mode")
         ));
         if (p.mode === "tile" || p.mode === "crop") {
           const f2 = numberField({ label: "Sc", title: "Image scale", min: 0.01, step: 0.05, def: 1, get: () => paints(get2())[i]?.scale ?? 1, apply: (v, ph) => update({ scale: v }, ph) });
@@ -9336,7 +9890,7 @@ ${xo}
       }
       const op = numberField({ label: "Op", title: "Paint opacity", min: 0, max: 100, def: 100, unit: "%", decimals: 0, get: () => Math.round(((paints(get2())[i] || {}).opacity ?? 1) * 100), apply: (v, ph) => update({ opacity: v >= 100 ? void 0 : v / 100 }, ph) });
       fields.push(op);
-      body.push(h("div.ps-grid", op.el, sel4(p.blend || "normal", BLEND_MODES.map((b) => [b, b]), (v) => update({ blend: v === "normal" ? void 0 : v }), "Paint blend mode")));
+      body.push(h("div.ps-grid", op.el, sel5(p.blend || "normal", BLEND_MODES.map((b) => [b, b]), (v) => update({ blend: v === "normal" ? void 0 : v }), "Paint blend mode")));
       return h("div.paint", head, ...body);
     });
     return h("div.ps-col", ...rows.reverse(), h("div.ps-row", btn(`+ ${kind === "fill" ? "Fill" : "Stroke"}`, `Add a ${kind}`, () => set([...list(), { type: "solid", color: kind === "fill" ? "#D9D9D9" : "#1E1E1E" }]))));
@@ -9369,7 +9923,7 @@ ${xo}
         h(
           "div.ps-row",
           h("input", { type: "checkbox", checked: e.visible !== false, "aria-label": "Effect visible", on: { change: (ev) => update({ visible: ev.target.checked ? void 0 : false }) } }),
-          sel4(e.type, EFFECT_TYPES, (t) => {
+          sel5(e.type, EFFECT_TYPES, (t) => {
             const l = list();
             l[i] = { type: t, ...EFFECT_DEFAULTS[t] };
             set(l);
@@ -9389,7 +9943,7 @@ ${xo}
 
   // src/ui/props-extra.js
   var btn2 = (label, fn, title) => h("button.ps-btn", { type: "button", title, on: { click: fn } }, label);
-  var sel5 = (value, options, onChange, label) => {
+  var sel6 = (value, options, onChange, label) => {
     const s = h("select", { "aria-label": label, on: { change: () => onChange(s.value) } }, options.map(([v, l]) => h("option", { value: v }, l)));
     s.value = value ?? "";
     return s;
@@ -9408,7 +9962,7 @@ ${xo}
           if (await app2.confirm(`Delete variable “${v.name}”?`, "Bound layers keep their current values.", "Delete", true)) app2.run("variable.delete", { id: vid });
         }, "Delete variable"))
       ));
-      const typeSel = sel5("color", VAR_TYPES.map((t) => [t, t]), () => {
+      const typeSel = sel6("color", VAR_TYPES.map((t) => [t, t]), () => {
       }, "New variable type");
       const DEF = { color: "#0D99FF", number: 16, string: "Text", boolean: true };
       return h(
@@ -9445,7 +9999,7 @@ ${xo}
       h("span.bind-var", "◆ " + (V.vars[bound[p]]?.name || "?")),
       btn2("×", () => app2.run("node.bindVariable", { prop: p, variable: null }), "Detach variable")
     ));
-    const propSel = sel5(props[0], props.map((p) => [p, p]), () => {
+    const propSel = sel6(props[0], props.map((p) => [p, p]), () => {
     }, "Property to bind");
     const varFor = () => Object.entries(V.vars).filter(([, v]) => BINDABLE[v.type].includes(propSel.value));
     const varSel = h("select", { "aria-label": "Variable" });
@@ -9454,7 +10008,7 @@ ${xo}
     };
     propSel.addEventListener("change", fill);
     fill();
-    const modes = one.type === "frame" || one.type === "instance" ? Object.entries(V.collections).filter(([, c]) => c.modes.length > 1).map(([cid, c]) => h("label.ps-field", h("span", c.name), sel5(one.modes?.[cid] || "", [["", "Inherit"], ...c.modes.map((m) => [m.id, m.name])], (m) => app2.run("node.setMode", { collection: cid, mode: m || null }), `${c.name} mode`))) : [];
+    const modes = one.type === "frame" || one.type === "instance" ? Object.entries(V.collections).filter(([, c]) => c.modes.length > 1).map(([cid, c]) => h("label.ps-field", h("span", c.name), sel6(one.modes?.[cid] || "", [["", "Inherit"], ...c.modes.map((m) => [m.id, m.name])], (m) => app2.run("node.setMode", { collection: cid, mode: m || null }), `${c.name} mode`))) : [];
     return section("Variables", ...rows, h("div.ps-row", propSel, varSel, btn2("Bind", () => varSel.value && app2.run("node.bindVariable", { prop: propSel.value, variable: varSel.value }))), ...modes);
   }
   function protoSection(doc, one, app2) {
@@ -9466,14 +10020,14 @@ ${xo}
     else {
       kids.push(h(
         "div.ps-grid",
-        sel5(pr.trigger || "click", [["click", "On click"], ["hover", "While hovering"], ["press", "On press"]], (v) => set({ trigger: v }), "Trigger"),
-        sel5(pr.action || "navigate", [["navigate", "Navigate to"], ["overlay", "Open overlay"], ["back", "Back"], ["close", "Close overlay"], ["url", "Open link"]], (v) => set({ action: v, ...v === "navigate" || v === "overlay" ? { target: pr.target || frames[0] } : {}, ...v === "url" ? { url: pr.url || "https://" } : {} }), "Action")
+        sel6(pr.trigger || "click", [["click", "On click"], ["hover", "While hovering"], ["press", "On press"]], (v) => set({ trigger: v }), "Trigger"),
+        sel6(pr.action || "navigate", [["navigate", "Navigate to"], ["overlay", "Open overlay"], ["back", "Back"], ["close", "Close overlay"], ["url", "Open link"]], (v) => set({ action: v, ...v === "navigate" || v === "overlay" ? { target: pr.target || frames[0] } : {}, ...v === "url" ? { url: pr.url || "https://" } : {} }), "Action")
       ));
-      if (pr.action === "navigate" || pr.action === "overlay") kids.push(sel5(pr.target, frames.map((id) => [id, doc.nodes[id].name]), (v) => set({ target: v }), "Destination"));
+      if (pr.action === "navigate" || pr.action === "overlay") kids.push(sel6(pr.target, frames.map((id) => [id, doc.nodes[id].name]), (v) => set({ target: v }), "Destination"));
       if (pr.action === "url") kids.push(h("input", { type: "text", value: pr.url || "", "aria-label": "Link", on: { keydown: stop, change: (e) => set({ url: e.target.value }) } }));
       if (pr.action === "navigate") kids.push(h(
         "div.ps-grid",
-        sel5(pr.transition || "instant", [["instant", "Instant"], ["dissolve", "Dissolve"], ["slide-left", "Slide in"], ["slide-right", "Slide back"]], (v) => set({ transition: v }), "Transition"),
+        sel6(pr.transition || "instant", [["instant", "Instant"], ["dissolve", "Dissolve"], ["slide-left", "Slide in"], ["slide-right", "Slide back"]], (v) => set({ transition: v }), "Transition"),
         h("input.small", { type: "number", value: pr.duration ?? 300, min: 0, step: 50, "aria-label": "Duration (ms)", on: { keydown: stop, change: (e) => set({ duration: Number(e.target.value) || 0 }) } })
       ));
       kids.push(h("div.ps-row", btn2("Remove", () => app2.run("proto.set", { proto: null }))));
@@ -9498,7 +10052,7 @@ ${xo}
       };
       return h(
         "div.paint",
-        h("div.ps-row", sel5(g.type, [["columns", "Columns"], ["rows", "Rows"], ["grid", "Grid"]], (v) => upd({ type: v }), "Grid type"), btn2("−", () => set(grids.filter((_, j) => j !== i)), "Remove grid")),
+        h("div.ps-row", sel6(g.type, [["columns", "Columns"], ["rows", "Rows"], ["grid", "Grid"]], (v) => upd({ type: v }), "Grid type"), btn2("−", () => set(grids.filter((_, j) => j !== i)), "Remove grid")),
         g.type === "grid" ? h("div.ps-grid", nf("Size", "size", 8, "Cell size")) : h("div.ps-grid", nf("N", "count", 12, "Count"), nf("Gut", "gutter", 20, "Gutter"), nf("Mar", "margin", 20, "Margin"))
       );
     });
@@ -9553,7 +10107,7 @@ ${xo}
       } else app2.run(cmd, params);
     };
     const setProps = (props, phase = "commit") => apply2("node.set", { ids: state.selection.slice(), props }, phase);
-    const num2 = (label, prop, o = {}) => {
+    const num3 = (label, prop, o = {}) => {
       const f2 = numberField({
         label,
         title: o.title,
@@ -9610,7 +10164,7 @@ ${xo}
         "div.ps-col",
         h("div.ps-row", color, hex, button("−", () => setProps({ [prop]: null, [styleKey]: void 0 }), { title: `Remove ${kind}` })),
         h("div.ps-row", styleSel, button("❖", () => app2.run("style.fromSelection", { kind }), { title: `Create a colour style from this ${kind}` })),
-        kind === "stroke" ? grid(num2("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" })) : null
+        kind === "stroke" ? grid(num3("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" })) : null
       );
     }
     function structureKey() {
@@ -9619,7 +10173,7 @@ ${xo}
       if (!ns.length) return extra + "doc:" + Object.keys(state.doc.styles).length + ":" + JSON.stringify(Object.values(state.doc.styles).map((s) => s.name)) + Object.values(state.doc.nodes).filter((n) => n.component).map((n) => n.id + n.name).join();
       return ns.map((n) => {
         const p = n.parent && state.doc.nodes[n.parent];
-        return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null)].join("|");
+        return [n.id, n.name, n.type, !!n.src, !!n.component, hasLayout(n) && JSON.stringify(n.layout), hasLayout(p), !!fillOf(n, state.doc.styles), !!strokeOf(n, state.doc.styles), n.fillStyle, n.strokeStyle, n.textStyle, n.mainId, n.sizing && JSON.stringify(n.sizing), n.constraints && JSON.stringify(n.constraints), n.fontFamily, n.fontWeight, n.align, n.autoSize, n.clip, n.variant && JSON.stringify(n.variant), n.locked, JSON.stringify(n.fill ?? null), JSON.stringify(n.stroke ?? null), JSON.stringify(n.effects ?? null), Array.isArray(n.radius), n.strokeAlign, n.blendMode, n.fillRule, n.strokeCap, n.strokeJoin, JSON.stringify(n.dash ?? null), n.decoration, n.textCase, JSON.stringify(n.proto ?? null), JSON.stringify(n.grids ?? null), JSON.stringify(n.modes ?? null), JSON.stringify(n.bind ?? null), JSON.stringify(n.props ?? null), JSON.stringify(n.propValues ?? null), n.effectStyle, n.minW, n.maxW, n.minH, n.maxH, state.editing === n.id].join("|");
       }).join(";") + Object.keys(state.doc.styles).join() + extra;
     }
     function build() {
@@ -9654,6 +10208,12 @@ ${xo}
           h("div.ps-note", main ? `of ${main.name}` : "Its main component was deleted"),
           ...rows,
           others.length ? h("label.ps-field", h("span", "Swap"), select(one.mainId, [[one.mainId, main ? main.name : "—"], ...others.map((n) => [n.id, n.name])], (v) => v !== one.mainId && app2.run("instance.swap", { id: one.id, mainId: v }), "Swap instance")) : null,
+          ...Object.entries(main && main.props || {}).map(([name, def]) => {
+            const v = (one.propValues || {})[name] ?? def.default;
+            const set2 = (value) => app2.run("instance.setProp", { id: one.id, name, value });
+            const ctl = def.type === "boolean" ? h("input", { type: "checkbox", checked: v !== false, "aria-label": name, on: { change: (e) => set2(e.target.checked) } }) : def.type === "swap" ? select(v, Object.values(doc.nodes).filter((n) => n.component && !n.src).map((n) => [n.id, n.name]), set2, name) : h("input", { type: "text", value: v ?? "", "aria-label": name, on: { keydown: (e) => e.stopPropagation(), change: (e) => set2(e.target.value) } });
+            return h("label.ps-field", h("span", name), ctl);
+          }),
           h("div.ps-row", main ? button("Go to main", () => app2.run("component.goToMain")) : null, button("Reset", () => app2.run("instance.reset")), button("Detach", () => app2.run("component.detach")))
         ));
       } else if (one && one.component) {
@@ -9661,6 +10221,24 @@ ${xo}
         body.append(section2(
           "Component",
           set ? h("div.ps-note", `Variant ${Object.entries(one.variant || {}).map(([k, v]) => `${k}=${v}`).join(", ")} — rename to change`) : null,
+          ...Object.entries(one.props || {}).map(([name, def]) => h("div.ps-row", h("span.bind-prop", name), h("span.bind-var", `${def.type} → ${doc.nodes[def.target]?.name || "?"}`), button("×", () => app2.run("component.removeProp", { id: one.id, name }), { title: "Remove property" }))),
+          (() => {
+            const layers = [];
+            const walk2 = (id) => {
+              for (const c of doc.nodes[id].children || []) {
+                layers.push(doc.nodes[c]);
+                if (doc.nodes[c].type !== "instance") walk2(c);
+              }
+            };
+            walk2(one.id);
+            if (!layers.length) return null;
+            const typeSel = select("text", [["text", "Text"], ["boolean", "Boolean"], ["swap", "Instance swap"]], () => fillTargets(), "Property type");
+            const target = h("select", { "aria-label": "Layer" });
+            const fillTargets = () => target.replaceChildren(...layers.filter((l) => typeSel.value === "boolean" || (typeSel.value === "text" ? l.type === "text" : l.type === "instance")).map((l) => h("option", { value: l.id }, l.name)));
+            fillTargets();
+            const name = h("input", { type: "text", placeholder: "Property name", "aria-label": "Property name", on: { keydown: (e) => e.stopPropagation() } });
+            return h("div.ps-col", h("div.ps-row", typeSel, target), h("div.ps-row", name, button("+ Property", () => target.value && app2.run("component.addProp", { id: one.id, name: name.value.trim() || doc.nodes[target.value].name, type: typeSel.value, target: target.value }))));
+          })(),
           h("div.ps-row", button("Create instance", () => app2.run("component.instance"), { primary: true }))
         ));
       } else if (ns.length > 1 && ns.every((n) => n.component && !variantSetOf(doc, n.id))) {
@@ -9671,7 +10249,7 @@ ${xo}
         body.append(h("div.ps-row.pad", button("Create component", () => app2.run("component.create"), { title: "Mod+Alt+K" })));
       }
       if (!ns.some((n) => n.src)) {
-        body.append(section2("Position", grid(num2("X", "x"), num2("Y", "y"), num2("W", "w", { min: 1, def: 100 }), num2("H", "h", { min: 0, def: 100 }), num2("↻", "rotation", { title: "Rotation", unit: "°", min: -180, max: 180 }))));
+        body.append(section2("Position", grid(num3("X", "x"), num3("Y", "y"), num3("W", "w", { min: 1, def: 100 }), num3("H", "h", { min: 0, def: 100 }), num3("↻", "rotation", { title: "Rotation", unit: "°", min: -180, max: 180 }))));
       }
       const containers = ns.filter((n) => n.type === "frame" || n.type === "instance");
       if (containers.length === ns.length && !ns.some((n) => n.src)) {
@@ -9698,10 +10276,14 @@ ${xo}
             "Auto layout",
             h(
               "div.ps-row",
-              seg(lay.wrap ? "wrap" : lay.mode, [["row", "→", "Horizontal"], ["column", "↓", "Vertical"], ["wrap", "↩", "Wrap"]], (v) => setL(v === "wrap" ? { mode: "row", wrap: true } : { mode: v, wrap: false }), "Direction"),
+              seg(lay.mode === "grid" ? "grid" : lay.wrap ? "wrap" : lay.mode, [["row", "→", "Horizontal"], ["column", "↓", "Vertical"], ["wrap", "↩", "Wrap"], ["grid", "▦", "Grid"]], (v) => setL(v === "wrap" ? { mode: "row", wrap: true } : v === "grid" ? { mode: "grid", wrap: false, columns: lay.columns || 2 } : { mode: v, wrap: false }), "Direction"),
               button("×", () => app2.run("layout.remove"), { title: "Remove auto layout (Alt+Shift+A)" })
             ),
-            grid(lnum("Gap", (l) => l.gap, (v) => ({ gap: v }), { title: "Gap between items" }), lay.wrap ? lnum("Rows", (l) => l.crossGap ?? l.gap, (v) => ({ crossGap: v }), { title: "Gap between rows" }) : null),
+            grid(
+              lnum("Gap", (l) => l.gap, (v) => ({ gap: v }), { title: "Gap between items" }),
+              lay.wrap || lay.mode === "grid" ? lnum("Rows", (l) => l.crossGap ?? l.gap, (v) => ({ crossGap: v }), { title: "Gap between rows" }) : null,
+              lay.mode === "grid" ? lnum("Cols", (l) => l.columns || 2, (v) => ({ columns: Math.max(1, Math.round(v)) }), { title: "Columns", min: 1, def: 2 }) : null
+            ),
             grid(padIdx(0), padIdx(1), padIdx(2), padIdx(3)),
             h("label.ps-field", h("span", "Align"), select(lay.align, [["start", "Start"], ["center", "Centre"], ["end", "End"], ["stretch", "Stretch"]], (v) => setL({ align: v }), "Align items")),
             h("label.ps-field", h("span", "Justify"), select(lay.justify, [["start", "Start"], ["center", "Centre"], ["end", "End"], ["between", "Space between"]], (v) => setL({ justify: v }), "Justify items"))
@@ -9715,7 +10297,19 @@ ${xo}
         body.append(section2(
           "Resizing",
           h("label.ps-field", h("span", "Width"), select(common((n) => (n.sizing || {}).h || (n.type === "text" && n.autoSize === "width" ? "hug" : "fixed")), opts("h"), (v) => app2.run("node.setSizing", { h: v }), "Width sizing")),
-          h("label.ps-field", h("span", "Height"), select(common((n) => (n.sizing || {}).v || (n.type === "text" && n.autoSize !== "fixed" ? "hug" : "fixed")), opts("v"), (v) => app2.run("node.setSizing", { v }), "Height sizing"))
+          h("label.ps-field", h("span", "Height"), select(common((n) => (n.sizing || {}).v || (n.type === "text" && n.autoSize !== "fixed" ? "hug" : "fixed")), opts("v"), (v) => app2.run("node.setSizing", { v }), "Height sizing")),
+          grid(...[["minW", "Min W"], ["maxW", "Max W"], ["minH", "Min H"], ["maxH", "Max H"]].map(([k, label]) => {
+            const f2 = numberField({
+              label: label.replace(" ", ""),
+              title: label.replace("W", "width").replace("H", "height"),
+              min: 0,
+              def: 0,
+              get: () => common((n) => n[k] ?? null),
+              apply: (v, phase) => phase === "commit" && app2.run("node.setMinMax", { [k]: v > 0 ? v : null })
+            });
+            fields.push(f2);
+            return f2.el;
+          }))
         ));
       }
       const inPlainFrame = ns.every((n) => {
@@ -9752,21 +10346,21 @@ ${xo}
       const radiusUI = !rounded ? null : perCorner ? h("div.ps-col", grid(cornerField(0, "↖"), cornerField(1, "↗"), cornerField(3, "↙"), cornerField(2, "↘")), h("div.ps-row", button("One radius", () => {
         const r = nodes()[0].radius;
         setProps({ radius: Array.isArray(r) ? Math.max(...r) : r });
-      }))) : h("div.ps-row", num2("R", "radius", { min: 0, title: "Corner radius" }), button("⌜⌝", () => {
+      }))) : h("div.ps-row", num3("R", "radius", { min: 0, title: "Corner radius" }), button("⌜⌝", () => {
         const r = nodes()[0].radius || 0;
         setProps({ radius: [r, r, r, r] });
       }, { title: "Independent corners" }));
       body.append(section2(
         "Appearance",
         grid(
-          num2("Op", "opacity", { scale: 100, min: 0, max: 100, def: 100, unit: "%", decimals: 0, title: "Opacity" }),
+          num3("Op", "opacity", { scale: 100, min: 0, max: 100, def: 100, unit: "%", decimals: 0, title: "Opacity" }),
           select(common((n) => n.blendMode || "normal"), [["normal", "Normal"], ...BLEND_MODES.slice(1).map((b) => [b, b])], (v) => setProps({ blendMode: v === "normal" ? void 0 : v }), "Layer blend mode")
         ),
         radiusUI,
         clipRow
       ));
-      if (allType("polygon")) body.append(section2("Polygon", grid(num2("Sides", "sides", { min: 3, max: 60, def: 3, decimals: 0, title: "Number of sides" }))));
-      if (allType("star")) body.append(section2("Star", grid(num2("Pts", "points", { min: 3, max: 60, def: 5, decimals: 0, title: "Number of points" }), num2("In", "inner", { scale: 100, min: 1, max: 100, def: 38, unit: "%", decimals: 0, title: "Inner radius ratio" }))));
+      if (allType("polygon")) body.append(section2("Polygon", grid(num3("Sides", "sides", { min: 3, max: 60, def: 3, decimals: 0, title: "Number of sides" }))));
+      if (allType("star")) body.append(section2("Star", grid(num3("Pts", "points", { min: 3, max: 60, def: 5, decimals: 0, title: "Number of points" }), num3("In", "inner", { scale: 100, min: 1, max: 100, def: 38, unit: "%", decimals: 0, title: "Inner radius ratio" }))));
       if (one && ["vector", "polygon", "star"].includes(one.type) && !one.src) {
         body.append(section2("Path", h(
           "div.ps-row",
@@ -9800,7 +10394,7 @@ ${xo}
         const opts = hasStroke ? h(
           "div.ps-col",
           grid(
-            num2("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" }),
+            num3("W", "strokeWidth", { min: 0, step: 0.5, def: 1, title: "Stroke width" }),
             select(common((n) => n.strokeAlign || "center"), [["center", "Centre"], ["inside", "Inside"], ["outside", "Outside"]], (v) => setProps({ strokeAlign: v === "center" ? void 0 : v }), "Stroke position")
           ),
           grid(
@@ -9820,15 +10414,49 @@ ${xo}
         ) : null;
         body.append(section2("Stroke", paintSection("stroke"), opts));
       }
-      body.append(section2("Effects", effectsEditor({ get: () => nodes()[0] && nodes()[0].effects, apply: (v, phase) => setProps({ effects: v }, phase), fields })));
+      {
+        const effStyles = Object.entries(doc.styles).filter(([, st]) => st.type === "effect");
+        const effId = common((n) => n.effectStyle || "");
+        body.append(section2(
+          "Effects",
+          h(
+            "div.ps-row",
+            select(effId, [["", "— no effect style —"], ...effStyles.map(([id, st]) => [id, st.name])], (v) => app2.run("node.applyStyle", { kind: "effect", styleId: v || null }), "Effect style"),
+            button("❖", () => app2.run("style.fromSelection", { kind: "effect" }), { title: "Create an effect style from these effects" })
+          ),
+          effId ? h("div.ps-note", "Effects come from the style.") : effectsEditor({ get: () => nodes()[0] && nodes()[0].effects, apply: (v, phase) => setProps({ effects: v }, phase), fields })
+        ));
+      }
       if (allType("text")) {
         const t0 = textOf(ns[0], doc.styles);
         const textStyles = Object.entries(doc.styles).filter(([, s]) => s.type === "text");
         const styleId = common((n) => n.textStyle || "");
         const fontOpts = Object.keys(FONT_STACKS).map((f2) => [f2, f2]);
         if (!FONT_STACKS[t0.fontFamily]) fontOpts.push([t0.fontFamily, t0.fontFamily]);
+        const rangeBtn = (label, title2, style) => h("button.ps-btn", { type: "button", title: title2, on: {
+          pointerdown: (e) => e.preventDefault(),
+          // keep the text editor focused
+          click: () => {
+            const r = app2.textRange();
+            if (r) app2.run("text.styleRange", { ...r, style: typeof style === "function" ? style(r) : style });
+          }
+        } }, label);
+        const runAt = (r, key2) => {
+          const n = state.doc.nodes[r.id];
+          return (n.runs || []).find((x) => r.start >= x.start && r.end <= x.end && x.style[key2] != null)?.style[key2];
+        };
         body.append(section2(
           "Text",
+          state.editing === one?.id ? h("div.ps-col", h("div.ps-note", "Style the selected characters:"), h(
+            "div.ps-row",
+            rangeBtn("B", "Bold", (r) => ({ fontWeight: runAt(r, "fontWeight") >= 600 ? null : 700 })),
+            rangeBtn("I", "Italic", (r) => ({ italic: runAt(r, "italic") ? null : true })),
+            rangeBtn("U", "Underline", (r) => ({ decoration: runAt(r, "decoration") === "underline" ? null : "underline" })),
+            rangeBtn("S", "Strike-through", (r) => ({ decoration: runAt(r, "decoration") === "strike" ? null : "strike" })),
+            rangeBtn("A+", "Larger", (r) => ({ fontSize: Math.round((runAt(r, "fontSize") || one.fontSize) * 1.25) })),
+            rangeBtn("●", "Brand colour", () => ({ fill: "#0D99FF" })),
+            rangeBtn("⌫", "Clear styles", () => ({ fontWeight: null, italic: null, decoration: null, fontSize: null, fill: null }))
+          )) : null,
           h(
             "div.ps-row",
             select(styleId, [["", "— no text style —"], ...textStyles.map(([id, s]) => [id, s.name])], (v) => app2.run("node.applyStyle", { kind: "text", styleId: v || null }), "Text style"),
@@ -9838,7 +10466,7 @@ ${xo}
             "div.ps-col",
             h("label.ps-field", h("span", "Font"), select(common((n) => n.fontFamily), fontOpts, (v) => setProps({ fontFamily: v }), "Font family")),
             h("label.ps-field", h("span", "Weight"), select(common((n) => n.fontWeight), WEIGHTS, (v) => setProps({ fontWeight: Number(v) }), "Font weight")),
-            grid(num2("Size", "fontSize", { min: 1, def: 16, title: "Font size" }), num2("LH", "lineHeight", { min: 0.5, step: 0.05, def: 1.25, title: "Line height (multiple)" }))
+            grid(num3("Size", "fontSize", { min: 1, def: 16, title: "Font size" }), num3("LH", "lineHeight", { min: 0.5, step: 0.05, def: 1.25, title: "Line height (multiple)" }))
           ),
           h(
             "div.ps-row",
@@ -9855,7 +10483,7 @@ ${xo}
       body.append(section2(
         "Export",
         h("div.ps-row", button("PNG", () => app2.run("export.png", { ids: ids(), download: true })), button("JPG", () => app2.run("export.jpg", { ids: ids(), download: true })), button("SVG", () => app2.run("export.svg", { ids: ids(), download: true })), button("PDF", () => app2.run("export.pdf", { ids: ids(), download: true }))),
-        h("div.ps-row", button("Code…", () => app2.run("code.show")), button("Inspect", () => app2.run("view.inspect"), { title: "Shift+D" }))
+        h("div.ps-row", button("Code…", () => app2.run("code.show")), button("Android XML", () => app2.run("export.avd", { ids: ids(), download: true })), button("Inspect", () => app2.run("view.inspect"), { title: "Shift+D" }))
       ));
     }
     function buildDoc() {
@@ -10093,115 +10721,6 @@ ${xo}
     el.className = "toast show " + kind;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove("show"), kind === "error" ? 6e3 : 2500);
-  }
-
-  // src/storage.js
-  var DIR = "documents/";
-  var WORKING = "working.figger.json";
-  var LS_KEY = "figger.working";
-  var nak = () => globalThis.naklios;
-  var EXT = ".figger.json";
-  function safeName(name) {
-    return (String(name || "Untitled").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-").trim().slice(0, 80) || "Untitled") + EXT;
-  }
-  function hostStore() {
-    const fs = nak().fs;
-    return {
-      kind: "host",
-      label: () => {
-        const c = nak().capabilities;
-        const b = (c.fsBackends || []).find((x) => x.id === c.fsBackend);
-        return b ? `${b.label}${b.name ? " · " + b.name : ""}` : "NakliOS storage";
-      },
-      async loadWorking() {
-        return await fs.exists(WORKING) ? fs.read(WORKING) : null;
-      },
-      async saveWorking(text) {
-        await fs.write(WORKING, text);
-      },
-      async list() {
-        return (await fs.list(DIR)).map((f2) => typeof f2 === "string" ? f2 : f2.path || f2.name).filter((p) => p.endsWith(EXT)).map((p) => p.replace(/^.*\//, ""));
-      },
-      async read(file) {
-        return fs.read(DIR + file);
-      },
-      async write(file, text) {
-        await fs.write(DIR + file, text);
-        return file;
-      },
-      async remove(file) {
-        await fs.delete(DIR + file);
-      },
-      pickers: false
-    };
-  }
-  function localStore() {
-    let handle = null;
-    const hasFSA = typeof showSaveFilePicker === "function";
-    const types = [{ description: "Figger document", accept: { "application/json": [EXT, ".json"] } }];
-    return {
-      kind: "local",
-      label: () => "This browser",
-      async loadWorking() {
-        try {
-          return localStorage.getItem(LS_KEY);
-        } catch {
-          return null;
-        }
-      },
-      async saveWorking(text) {
-        try {
-          localStorage.setItem(LS_KEY, text);
-        } catch (e) {
-          if (text.length > 4e6) throw new Error("Document is too large for the browser copy; save it to a file");
-          throw e;
-        }
-      },
-      pickers: true,
-      hasHandle: () => !!handle,
-      forget() {
-        handle = null;
-      },
-      async openPicked() {
-        if (typeof showOpenFilePicker === "function") {
-          const [h2] = await showOpenFilePicker({ types, multiple: false });
-          handle = h2;
-          const f3 = await h2.getFile();
-          return { name: f3.name, text: await f3.text() };
-        }
-        const f2 = await new Promise((resolve2, reject) => {
-          const input = Object.assign(document.createElement("input"), { type: "file", accept: `${EXT},.json,application/json` });
-          input.onchange = () => input.files[0] ? resolve2(input.files[0]) : reject(new Error("No file chosen"));
-          input.click();
-        });
-        handle = null;
-        return { name: f2.name, text: await f2.text() };
-      },
-      async savePicked(name, text, { as = false } = {}) {
-        if (hasFSA) {
-          if (!handle || as) handle = await showSaveFilePicker({ suggestedName: safeName(name), types });
-          const w = await handle.createWritable();
-          await w.write(text);
-          await w.close();
-          return handle.name;
-        }
-        download(new Blob([text], { type: "application/json" }), safeName(name));
-        return safeName(name);
-      }
-    };
-  }
-  function pickStore() {
-    const n = nak();
-    return n && n.capabilities.hosted && n.capabilities.fs ? hostStore() : localStore();
-  }
-  function download(blob, name) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1e3);
   }
 
   // src/host.js
@@ -10651,8 +11170,8 @@ ${xo}
       keys: ["Alt+Mod+Enter"],
       noRail: true,
       run: () => {
-        const sel6 = state.selection.map((id) => state.doc.nodes[id]).find((n) => n && !n.parent && n.type === "frame");
-        app.presentation = startPresentation(state.doc, sel6 && sel6.id, { onExit: () => {
+        const sel7 = state.selection.map((id) => state.doc.nodes[id]).find((n) => n && !n.parent && n.type === "frame");
+        app.presentation = startPresentation(state.doc, sel7 && sel7.id, { onExit: () => {
           app.presentation = null;
           app.focusCanvas();
         } });

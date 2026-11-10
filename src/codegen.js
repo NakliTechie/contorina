@@ -1,6 +1,6 @@
 // Inspect and code export: CSS for one layer; HTML/CSS and React for a frame. Pure (no DOM).
 // Auto layout becomes flexbox; plain frames position their children absolutely; vectors become SVG.
-import { fillOf, strokeOf, textOf, fontStack } from './styles.js';
+import { fillOf, strokeOf, textOf, fontStack, effectsOf } from './styles.js';
 import { paints, firstColor } from './paint.js';
 import { hasLayout } from './doc.js';
 import { toSVG } from './export.js';
@@ -92,7 +92,7 @@ export function cssFor(doc, id, { root = false } = {}) {
     if ((n.type === 'frame' || n.type === 'instance') && n.clip !== false && n.children && n.children.length) css.overflow = 'hidden';
   }
   const shadows = [], filters = [];
-  for (const e of n.effects || []) {
+  for (const e of effectsOf(n, doc.styles)) {
     if (e.visible === false) continue;
     if (e.type === 'drop') shadows.push(`${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} ${px(e.spread || 0)} ${e.color || 'rgba(0,0,0,0.25)'}`);
     if (e.type === 'inner') shadows.push(`inset ${px(e.x || 0)} ${px(e.y || 0)} ${px(e.blur || 0)} 0 ${e.color || 'rgba(0,0,0,0.25)'}`);

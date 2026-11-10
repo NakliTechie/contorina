@@ -1,7 +1,7 @@
 // Canvas2D renderer. One function draws a document into any context, so the canvas, PNG export and
 // the renderer spike share the same pixels.
 import { localMatrix, mul, apply, boxOfPoints, corners, intersects, IDENT } from './geom.js';
-import { fillOf, strokeOf, textOf } from './styles.js';
+import { fillOf, strokeOf, textOf, effectsOf } from './styles.js';
 import { textLayout } from './text.js';
 import { fillPaints, paints, firstColor } from './paint.js';
 import { shapeD } from './vector.js';
@@ -46,9 +46,9 @@ export function drawNodes(ctx, doc, ids, opts = {}, parentM = IDENT, alpha = 1) 
   for (const id of ids) drawNode(ctx, doc, id, opts, parentM, alpha);
 }
 
-function effectPad(n) {
+function effectPad(n, styles) {
   let pad = (n.strokeWidth || 0) + 2;
-  for (const e of n.effects || []) if (e.visible !== false) pad += Math.abs(e.x || 0) + Math.abs(e.y || 0) + (e.blur || e.radius || 0) * 2 + (e.spread || 0);
+  for (const e of effectsOf(n, styles || {})) if (e.visible !== false) pad += Math.abs(e.x || 0) + Math.abs(e.y || 0) + (e.blur || e.radius || 0) * 2 + (e.spread || 0);
   return pad;
 }
 
@@ -59,11 +59,11 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
   const m = mul(parentM, lm);
   if (opts.cull) {
     const b = boxOfPoints(corners(n).map((p) => apply(m, p)));
-    const pad = effectPad(n);
+    const pad = effectPad(n, doc.styles);
     if (!intersects({ x: b.x - pad, y: b.y - pad, w: b.w + 2 * pad, h: b.h + 2 * pad }, opts.cull)) return;
   }
   const a = alpha * (n.opacity ?? 1);
-  const effects = (n.effects || []).filter((e) => e.visible !== false);
+  const effects = effectsOf(n, doc.styles).filter((e) => e.visible !== false);
   ctx.save();
   ctx.transform(lm[0], lm[1], lm[2], lm[3], lm[4], lm[5]);
   ctx.globalAlpha = a;
@@ -121,6 +121,14 @@ function drawNode(ctx, doc, id, opts, parentM, alpha) {
 
   if (n.type !== 'line' && paints(fill).length) fillWith(ctx, fill, n, doc, path, rule);
 
+  for (const e of effects.filter((x) => x.type === 'noise')) {
+    ctx.save();
+    ctx.clip(path, rule);
+    ctx.globalAlpha *= Math.max(0, Math.min(1, e.amount ?? 0.15));
+    ctx.fillStyle = noisePattern(ctx, e.size || 1, e.mono !== false);
+    ctx.fillRect(0, 0, n.w, n.h);
+    ctx.restore();
+  }
   for (const e of effects.filter((x) => x.type === 'inner')) {
     ctx.save();
     ctx.clip(path, rule);
@@ -201,6 +209,29 @@ function drawText(ctx, n, styles, fill, effects, doc) {
   }
   const ps = paints(fill);
   const solid = ps.length === 1 && ps[0].type === 'solid';
+  if (L.rich) {
+    // Styled pieces, left to right; each line aligns as a whole.
+    const base = (ps[0] && (ps[0].color || firstColor(ps[0]))) || '#000';
+    ctx.textAlign = 'left';
+    for (const line of L.rich) {
+      const x0 = t.align === 'center' ? (n.w - line.w) / 2 : t.align === 'right' ? n.w - line.w : 0;
+      for (const p of line.pieces) {
+        ctx.font = p.font;
+        ctx.fillStyle = p.fill || base;
+        const y = line.y + line.lh / 2;
+        ctx.fillText(p.text, x0 + p.x, y);
+        if (p.decoration) {
+          ctx.save();
+          ctx.strokeStyle = ctx.fillStyle;
+          ctx.lineWidth = Math.max(1, p.size / 14);
+          const ly = y + (p.decoration === 'underline' ? p.size * 0.45 : 0);
+          ctx.beginPath(); ctx.moveTo(x0 + p.x, ly); ctx.lineTo(x0 + p.x + p.w, ly); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+    return;
+  }
   if (solid || !ps.length) {
     ctx.fillStyle = (ps[0] && ps[0].color) || '#000';
     L.lines.forEach((line, i) => ctx.fillText(line, x, i * L.lh + L.lh / 2));
@@ -228,6 +259,27 @@ function decorate(ctx, t, L, x) {
     ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + w, y); ctx.stroke();
   });
   ctx.restore();
+}
+
+// A fixed 64x64 tile of random grey (or colour) pixels; seeded so every render looks the same.
+const noiseTiles = new Map();
+function noisePattern(ctx, size, mono) {
+  const key = `${size}|${mono}`;
+  let tile = noiseTiles.get(key);
+  if (!tile) {
+    const N = 64;
+    tile = new OffscreenCanvas(N * size, N * size);
+    const t = tile.getContext('2d');
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 255;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const v = rnd() | 0;
+      t.fillStyle = mono ? `rgb(${v},${v},${v})` : `rgb(${v},${rnd() | 0},${rnd() | 0})`;
+      t.fillRect(x * size, y * size, size, size);
+    }
+    noiseTiles.set(key, tile);
+  }
+  return ctx.createPattern(tile, 'repeat');
 }
 
 function scaleOf(ctx) {

@@ -477,6 +477,34 @@
       }
     },
     {
+      "name": "text.styleRange",
+      "description": "Style characters [start, end) of a text layer: fontWeight, fontSize, italic, fill (#hex), decoration (underline, strike); null removes a key.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "style": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "start",
+          "end",
+          "style"
+        ]
+      }
+    },
+    {
       "name": "doc.rename",
       "description": "Rename document",
       "scope": "write",
@@ -628,15 +656,14 @@
             "type": "string",
             "enum": [
               "color",
-              "text"
+              "text",
+              "effect"
             ]
           },
           "name": {
             "type": "string"
           },
-          "value": {
-            "type": "string"
-          },
+          "value": {},
           "fontSize": {
             "type": "number"
           },
@@ -648,6 +675,9 @@
           },
           "lineHeight": {
             "type": "number"
+          },
+          "effects": {
+            "type": "array"
           },
           "id": {
             "type": "string"
@@ -671,7 +701,8 @@
             "enum": [
               "fill",
               "stroke",
-              "text"
+              "text",
+              "effect"
             ]
           },
           "name": {
@@ -732,7 +763,8 @@
             "enum": [
               "fill",
               "stroke",
-              "text"
+              "text",
+              "effect"
             ]
           },
           "styleId": {
@@ -1342,6 +1374,124 @@
         "required": [
           "format"
         ]
+      }
+    },
+    {
+      "name": "component.addProp",
+      "description": "Add a property to a main component: type text (drives a text layer), boolean (shows or hides a layer) or swap (chooses the main of a nested instance). target is the layer inside the main.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "boolean",
+              "swap"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "component.removeProp",
+      "description": "Remove component property",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "instance.setProp",
+      "description": "Set a component property on an instance (text, true/false, or a main component id for swap); value null resets it to the default.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "id",
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "export.avd",
+      "description": "Export the given layers (default: selection, else everything) as an Android Vector Drawable XML string; download saves a file. Text and images are skipped.",
+      "scope": "read",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array"
+          },
+          "download": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "node.setMinMax",
+      "description": "Set minimum and maximum width and height (null clears one); auto layout and resizing respect them.",
+      "scope": "write",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "description": "Node ids; defaults to the current selection"
+          },
+          "minW": {
+            "type": "number"
+          },
+          "maxW": {
+            "type": "number"
+          },
+          "minH": {
+            "type": "number"
+          },
+          "maxH": {
+            "type": "number"
+          }
+        }
       }
     }
   ],
