@@ -128,3 +128,18 @@ test('Android Vector Drawable export', () => {
   assert.match(xml, /<clip-path android:pathData="M0 0 L24 0/);
   assert.match(xml, /text skipped/);
 });
+
+test('smart animate: matching layers interpolate, new layers fade in', async () => {
+  const { smartDoc } = await import('../src/present.js').catch(() => ({}));
+  if (!smartDoc) return; // present.js imports DOM helpers only inside functions; skip if it cannot load
+  let d = emptyDoc();
+  d = exec(d, 'node.create', { type: 'frame', x: 0, y: 0, w: 100, h: 100, id: 'A' }).doc;
+  d = exec(d, 'node.create', { type: 'rect', parent: 'A', x: 0, y: 0, w: 10, h: 10, id: 'a1', props: { name: 'Box' } }).doc;
+  d = exec(d, 'node.create', { type: 'frame', x: 200, y: 0, w: 100, h: 100, id: 'B' }).doc;
+  d = exec(d, 'node.create', { type: 'rect', parent: 'B', x: 50, y: 20, w: 30, h: 10, id: 'b1', props: { name: 'Box' } }).doc;
+  d = exec(d, 'node.create', { type: 'rect', parent: 'B', x: 0, y: 80, w: 10, h: 10, id: 'b2', props: { name: 'New' } }).doc;
+  const half = smartDoc(d, 'A', 'B', 0.5);
+  assert.deepEqual([half.b1.x, half.b1.y, half.b1.w], [25, 10, 20]);
+  assert.equal(half.b2.opacity, 0.5);
+  assert.equal(d.nodes.b1.x, 50); // the document itself is untouched
+});

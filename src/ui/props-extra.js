@@ -80,7 +80,7 @@ export function protoSection(doc, one, app) {
       sel(pr.action || 'navigate', [['navigate', 'Navigate to'], ['overlay', 'Open overlay'], ['back', 'Back'], ['close', 'Close overlay'], ['url', 'Open link']], (v) => set({ action: v, ...(v === 'navigate' || v === 'overlay' ? { target: pr.target || frames[0] } : {}), ...(v === 'url' ? { url: pr.url || 'https://' } : {}) }), 'Action')));
     if (pr.action === 'navigate' || pr.action === 'overlay') kids.push(sel(pr.target, frames.map((id) => [id, doc.nodes[id].name]), (v) => set({ target: v }), 'Destination'));
     if (pr.action === 'url') kids.push(h('input', { type: 'text', value: pr.url || '', 'aria-label': 'Link', on: { keydown: stop, change: (e) => set({ url: e.target.value }) } }));
-    if (pr.action === 'navigate') kids.push(h('div.ps-grid', sel(pr.transition || 'instant', [['instant', 'Instant'], ['dissolve', 'Dissolve'], ['slide-left', 'Slide in'], ['slide-right', 'Slide back']], (v) => set({ transition: v }), 'Transition'),
+    if (pr.action === 'navigate') kids.push(h('div.ps-grid', sel(pr.transition || 'instant', [['instant', 'Instant'], ['dissolve', 'Dissolve'], ['smart', 'Smart animate'], ['slide-left', 'Slide in'], ['slide-right', 'Slide back']], (v) => set({ transition: v }), 'Transition'),
       h('input.small', { type: 'number', value: pr.duration ?? 300, min: 0, step: 50, 'aria-label': 'Duration (ms)', on: { keydown: stop, change: (e) => set({ duration: Number(e.target.value) || 0 }) } })));
     kids.push(h('div.ps-row', btn('Remove', () => app.run('proto.set', { proto: null }))));
   }

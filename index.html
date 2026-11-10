@@ -7949,6 +7949,35 @@ ${body}</vector>
   };
 
   // src/present.js
+  var NUM = ["x", "y", "w", "h", "rotation", "opacity", "radius"];
+  function namePaths2(doc, rootId) {
+    const out = /* @__PURE__ */ new Map();
+    const walk2 = (id, prefix) => {
+      for (const c of doc.nodes[id].children || []) {
+        const p = prefix + "/" + doc.nodes[c].name;
+        if (!out.has(p)) out.set(p, c);
+        walk2(c, p);
+      }
+    };
+    walk2(rootId, "");
+    return out;
+  }
+  function smartDoc(doc, fromId, toId, t) {
+    const src = namePaths2(doc, fromId), dst = namePaths2(doc, toId);
+    const nodes = { ...doc.nodes };
+    const mix = (a, b) => a + (b - a) * t;
+    for (const [path, id] of dst) {
+      const b = doc.nodes[id];
+      const a = src.has(path) ? doc.nodes[src.get(path)] : null;
+      const n = { ...b };
+      if (a) {
+        for (const k of NUM) if (typeof a[k] === "number" && typeof b[k] === "number") n[k] = mix(a[k], b[k]);
+        if (a.opacity == null && typeof b.opacity === "number") n.opacity = mix(1, b.opacity);
+      } else n.opacity = (b.opacity ?? 1) * t;
+      nodes[id] = n;
+    }
+    return nodes;
+  }
   function startPresentation(doc, startId, { onExit } = {}) {
     const frames = doc.children.filter((id) => doc.nodes[id] && doc.nodes[id].type === "frame" && doc.nodes[id].visible !== false);
     let current = startId && doc.nodes[startId] && !doc.nodes[startId].parent ? startId : doc.flowStart && doc.nodes[doc.flowStart] ? doc.flowStart : frames[0];
@@ -7973,14 +8002,14 @@ ${body}</vector>
       const k = Math.min(W / n.w, H / n.h, 4) * 0.94;
       return { k, x: (W - n.w * k) / 2, y: (H - n.h * k) / 2 };
     }
-    function paintFrame(id, alpha = 1, dx = 0) {
-      const n = doc.nodes[id];
+    function paintFrame(id, alpha = 1, dx = 0, d = doc) {
+      const n = d.nodes[id];
       const v = fit(id);
       const dpr = devicePixelRatio || 1;
       ctx2.save();
       ctx2.globalAlpha = alpha;
       ctx2.setTransform(dpr * v.k, 0, 0, dpr * v.k, dpr * (v.x + dx), dpr * v.y);
-      drawNodes(ctx2, doc, [id], {}, [1, 0, 0, 1, -n.x, -n.y], 1);
+      drawNodes(ctx2, d, [id], {}, [1, 0, 0, 1, -n.x, -n.y], 1);
       ctx2.restore();
     }
     function render() {
@@ -7997,6 +8026,8 @@ ${body}</vector>
         if (anim.kind === "dissolve") {
           paintFrame(anim.from, 1);
           paintFrame(anim.to, e);
+        } else if (anim.kind === "smart") {
+          paintFrame(anim.to, 1, 0, { ...doc, nodes: smartDoc(doc, anim.from, anim.to, e) });
         } else if (anim.kind.startsWith("slide")) {
           const dir = anim.kind === "slide-right" ? -1 : 1;
           paintFrame(anim.from, 1, -dir * W * e);
@@ -10122,7 +10153,7 @@ ${xo}
       if (pr.action === "url") kids.push(h("input", { type: "text", value: pr.url || "", "aria-label": "Link", on: { keydown: stop, change: (e) => set({ url: e.target.value }) } }));
       if (pr.action === "navigate") kids.push(h(
         "div.ps-grid",
-        sel6(pr.transition || "instant", [["instant", "Instant"], ["dissolve", "Dissolve"], ["slide-left", "Slide in"], ["slide-right", "Slide back"]], (v) => set({ transition: v }), "Transition"),
+        sel6(pr.transition || "instant", [["instant", "Instant"], ["dissolve", "Dissolve"], ["smart", "Smart animate"], ["slide-left", "Slide in"], ["slide-right", "Slide back"]], (v) => set({ transition: v }), "Transition"),
         h("input.small", { type: "number", value: pr.duration ?? 300, min: 0, step: 50, "aria-label": "Duration (ms)", on: { keydown: stop, change: (e) => set({ duration: Number(e.target.value) || 0 }) } })
       ));
       kids.push(h("div.ps-row", btn2("Remove", () => app2.run("proto.set", { proto: null }))));

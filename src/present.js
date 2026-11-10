@@ -5,6 +5,32 @@ import { hitChain } from './hit.js';
 import { worldMatrix, apply, inv } from './geom.js';
 import { h } from './ui/dom.js';
 
+// Smart animate: layers in the destination whose name path also exists in the source move, resize,
+// turn and fade from their source state; layers only in the destination fade in.
+const NUM = ['x', 'y', 'w', 'h', 'rotation', 'opacity', 'radius'];
+function namePaths(doc, rootId) {
+  const out = new Map();
+  const walk = (id, prefix) => { for (const c of doc.nodes[id].children || []) { const p = prefix + '/' + doc.nodes[c].name; if (!out.has(p)) out.set(p, c); walk(c, p); } };
+  walk(rootId, '');
+  return out;
+}
+export function smartDoc(doc, fromId, toId, t) {
+  const src = namePaths(doc, fromId), dst = namePaths(doc, toId);
+  const nodes = { ...doc.nodes };
+  const mix = (a, b) => a + (b - a) * t;
+  for (const [path, id] of dst) {
+    const b = doc.nodes[id];
+    const a = src.has(path) ? doc.nodes[src.get(path)] : null;
+    const n = { ...b };
+    if (a) {
+      for (const k of NUM) if (typeof a[k] === 'number' && typeof b[k] === 'number') n[k] = mix(a[k], b[k]);
+      if (a.opacity == null && typeof b.opacity === 'number') n.opacity = mix(1, b.opacity);
+    } else n.opacity = (b.opacity ?? 1) * t;
+    nodes[id] = n;
+  }
+  return nodes;
+}
+
 export function startPresentation(doc, startId, { onExit } = {}) {
   const frames = doc.children.filter((id) => doc.nodes[id] && doc.nodes[id].type === 'frame' && doc.nodes[id].visible !== false);
   let current = startId && doc.nodes[startId] && !doc.nodes[startId].parent ? startId : doc.flowStart && doc.nodes[doc.flowStart] ? doc.flowStart : frames[0];
@@ -25,15 +51,15 @@ export function startPresentation(doc, startId, { onExit } = {}) {
     const k = Math.min(W / n.w, H / n.h, 4) * 0.94;
     return { k, x: (W - n.w * k) / 2, y: (H - n.h * k) / 2 };
   }
-  function paintFrame(id, alpha = 1, dx = 0) {
-    const n = doc.nodes[id];
+  function paintFrame(id, alpha = 1, dx = 0, d = doc) {
+    const n = d.nodes[id];
     const v = fit(id);
     const dpr = devicePixelRatio || 1;
     ctx.save();
     ctx.globalAlpha = alpha;
     // Draw the frame at its own origin: undo its canvas position.
     ctx.setTransform(dpr * v.k, 0, 0, dpr * v.k, dpr * (v.x + dx), dpr * v.y);
-    drawNodes(ctx, doc, [id], {}, [1, 0, 0, 1, -n.x, -n.y], 1);
+    drawNodes(ctx, d, [id], {}, [1, 0, 0, 1, -n.x, -n.y], 1);
     ctx.restore();
   }
   function render() {
@@ -48,6 +74,9 @@ export function startPresentation(doc, startId, { onExit } = {}) {
       const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
       const W = root.clientWidth;
       if (anim.kind === 'dissolve') { paintFrame(anim.from, 1); paintFrame(anim.to, e); }
+      else if (anim.kind === 'smart') {
+        paintFrame(anim.to, 1, 0, { ...doc, nodes: smartDoc(doc, anim.from, anim.to, e) });
+      }
       else if (anim.kind.startsWith('slide')) {
         const dir = anim.kind === 'slide-right' ? -1 : 1;
         paintFrame(anim.from, 1, -dir * W * e);
