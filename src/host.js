@@ -13,6 +13,33 @@ export const hosted = () => !!(nak() && nak().capabilities.hosted);
 // acts (file pickers) and view-only tools stay off the rail by name. "help.read" returns each command's
 // own parameter schema, so an agent can look one up before calling it.
 export const RAIL_LIMIT = 64;
+// Every rail name as literal text: NakliOS's parity lint looks for each declared name in index.html, and
+// railEntries() refuses a computed group that is missing here, so this list cannot drift.
+export const RAIL_NAMES = [
+  'insert.write',
+  'edit.write',
+  'edit.destructive',
+  'arrange.write',
+  'layout.write',
+  'text.write',
+  'file.write',
+  'components.write',
+  'styles.write',
+  'styles.destructive',
+  'variables.write',
+  'variables.destructive',
+  'prototype.write',
+  'pages.write',
+  'pages.destructive',
+  'import.write',
+  'export.read',
+  'select.read',
+  'view.read',
+  'components.read',
+  'file.read',
+  'file.destructive',
+  'help.read',
+];
 const slug = (g) => String(g).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'misc';
 
 export function railEntries() {
@@ -38,6 +65,7 @@ export function railEntries() {
     },
     commands: g.list.map((c) => c.id),
   }));
+  for (const e of entries) if (!RAIL_NAMES.includes(e.name)) throw new Error(`Rail entry ${e.name} is missing from RAIL_NAMES in src/host.js`);
   if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List Figger commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'A Figger command id; omit to list all' } } }, commands: [] });
   return entries;
 }

@@ -546,6 +546,20 @@ async function boot() {
   nextFrame(() => run('view.fit'));
   subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · Figger`; });
 
+  // NakliOS "Open in Figger" (accepts action import): a read-only copy arrives as a token.
+  const files = globalThis.naklios && globalThis.naklios.files;
+  if (files && typeof files.onOpen === 'function') {
+    files.onOpen(async (grant) => {
+      try {
+        const f = await files.read(grant.token);
+        const text = typeof f === 'string' ? f : f.text != null ? f.text : new TextDecoder().decode(f.bytes);
+        const name = (f && f.name) || 'file';
+        if (/\.figger\.json$/i.test(name) || !(await importText(text, name))) await loadText(text, name);
+      } catch (err) { report(err); }
+      finally { try { files.release && files.release(grant.token); } catch {} }
+    });
+  }
+
   // Drop a .figger.json file anywhere to open it.
   window.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) e.preventDefault(); });
   window.addEventListener('drop', async (e) => {

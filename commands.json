@@ -1,10 +1,11 @@
 {
   "accepts": [
     {
-      "action": "open",
+      "action": "import",
       "label": "Open in Figger",
       "extensions": [
-        ".figger.json"
+        ".json",
+        ".svg"
       ]
     }
   ],

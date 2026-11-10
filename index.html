@@ -11032,6 +11032,31 @@ ${xo}
 
   // src/host.js
   var nak2 = () => globalThis.naklios;
+  var RAIL_NAMES = [
+    "insert.write",
+    "edit.write",
+    "edit.destructive",
+    "arrange.write",
+    "layout.write",
+    "text.write",
+    "file.write",
+    "components.write",
+    "styles.write",
+    "styles.destructive",
+    "variables.write",
+    "variables.destructive",
+    "prototype.write",
+    "pages.write",
+    "pages.destructive",
+    "import.write",
+    "export.read",
+    "select.read",
+    "view.read",
+    "components.read",
+    "file.read",
+    "file.destructive",
+    "help.read"
+  ];
   var slug = (g) => String(g).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "misc";
   function railEntries() {
     const groups = /* @__PURE__ */ new Map();
@@ -11056,6 +11081,7 @@ ${xo}
       },
       commands: g.list.map((c) => c.id)
     }));
+    for (const e of entries) if (!RAIL_NAMES.includes(e.name)) throw new Error(`Rail entry ${e.name} is missing from RAIL_NAMES in src/host.js`);
     if (!groups.has("help.read")) entries.push({ name: "help.read", scope: "read", description: "List Figger commands with their parameter schemas and scopes, or describe one command.", input: { type: "object", properties: { command: { type: "string", description: "A Figger command id; omit to list all" } } }, commands: [] });
     return entries;
   }
@@ -11931,6 +11957,24 @@ ${xo}
     subscribe((what) => {
       if (what.has("doc") && !what.has("preview")) document.title = `${state.doc.name} · Figger`;
     });
+    const files = globalThis.naklios && globalThis.naklios.files;
+    if (files && typeof files.onOpen === "function") {
+      files.onOpen(async (grant) => {
+        try {
+          const f2 = await files.read(grant.token);
+          const text = typeof f2 === "string" ? f2 : f2.text != null ? f2.text : new TextDecoder().decode(f2.bytes);
+          const name = f2 && f2.name || "file";
+          if (/\.figger\.json$/i.test(name) || !await importText(text, name)) await loadText(text, name);
+        } catch (err) {
+          report(err);
+        } finally {
+          try {
+            files.release && files.release(grant.token);
+          } catch {
+          }
+        }
+      });
+    }
     window.addEventListener("dragover", (e) => {
       if ([...e.dataTransfer?.items || []].some((i) => i.kind === "file")) e.preventDefault();
     });

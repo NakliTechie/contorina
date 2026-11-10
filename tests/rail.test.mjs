@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 await import('../src/main.js'); // registers every command; starts no UI without a DOM
-const { railEntries, railCommands, RAIL_LIMIT } = await import('../src/host.js');
+const { railEntries, railCommands, RAIL_LIMIT, RAIL_NAMES } = await import('../src/host.js');
 const { all, get } = await import('../src/registry.js');
 const { Tx, emptyDoc } = await import('../src/doc.js');
 const { resolve } = await import('../src/resolve.js');
@@ -31,10 +31,13 @@ test('rail entries fit the host catalog rules and cover every agent command once
   assert.ok(entries.some((e) => e.name === 'help.read'));
 });
 
-test('commands.json matches what the page registers', () => {
+test('commands.json matches what the page registers, and index.html carries every name literally', () => {
   const m = JSON.parse(readFileSync(new URL('../commands.json', import.meta.url), 'utf8'));
+  assert.deepEqual([...RAIL_NAMES].sort(), railEntries().map((e) => e.name).sort());
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  for (const c of m.commands) assert.ok(html.includes(c.name), `${c.name} not literal in index.html (naklios parity lint)`);
+  assert.deepEqual(m.accepts, [{ action: 'import', label: 'Open in Figger', extensions: ['.json', '.svg'] }]); // naklios allows edit (Editor only) or import
   assert.deepEqual(m.commands.map((c) => c.name).sort(), railEntries().map((e) => e.name).sort());
-  assert.deepEqual(m.accepts[0].extensions, ['.figger.json']);
 });
 
 test('a rail entry runs only its own commands, and help.read describes them', async () => {

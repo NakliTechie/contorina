@@ -33,7 +33,7 @@ const entries = railEntries();
 if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; Figger would register ${entries.length}`);
 const commands = entries.map(({ name, description, scope, input }) => ({ name, description, scope, input }));
 const manifest = {
-  accepts: [{ action: 'open', label: 'Open in Figger', extensions: ['.figger.json'] }],
+  accepts: [{ action: 'import', label: 'Open in Figger', extensions: ['.json', '.svg'] }],
   commands,
 };
 writeFileSync('commands.json', JSON.stringify(manifest, null, 2) + '\n');
