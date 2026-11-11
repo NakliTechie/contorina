@@ -1,6 +1,6 @@
 // SVG and PNG export. SVG is a pure string build (testable in Node); PNG uses the canvas renderer.
 // Every value written into an attribute passes through esc() or num(), because document files are
-// untrusted input (a .figger.json can come from anywhere).
+// untrusted input (a .contorina.json can come from anywhere).
 import { localMatrix, worldBox, unionBoxes, worldMatrix, mul, IDENT } from './geom.js';
 import { fillOf, strokeOf, textOf, fontStack, effectsOf } from './styles.js';
 import { textLayout } from './text.js';

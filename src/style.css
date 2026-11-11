@@ -1,4 +1,4 @@
-/* Figger: Dense direction, light by default; it does not follow the system dark mode.
+/* Contorina: Dense direction, light by default; it does not follow the system dark mode.
    A NakliOS host theme overrides these tokens through applyHostTheme(). */
 :root {
   --bg: #ffffff;

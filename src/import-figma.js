@@ -1,7 +1,7 @@
 // Best-effort import of Figma REST API JSON (GET /v1/files/:key, or /v1/files/:key/nodes), which is a
 // public, documented format. Request geometry=paths so vectors carry their outlines. Image fills arrive
 // without image bytes (the REST API serves them separately), so they import as a grey placeholder.
-// Produces Figger layer specs with coordinates relative to each parent. Pure.
+// Produces Contorina layer specs with coordinates relative to each parent. Pure.
 
 const hex2 = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0').toUpperCase();
 const colorHex = (c, op = 1) => { const a = (c.a ?? 1) * op; return '#' + hex2(c.r) + hex2(c.g) + hex2(c.b) + (a < 1 ? hex2(a) : ''); };
@@ -53,7 +53,7 @@ function place(n, parentBox) {
   if (t && parentBox !== null) {
     const a = t[0][0], b = t[1][0], tx = t[0][2], ty = t[1][2];
     const rot = (Math.atan2(b, a) * 180) / Math.PI;
-    // Figma's transform maps the layer's top-left corner; Figger rotates about the centre.
+    // Figma's transform maps the layer's top-left corner; Contorina rotates about the centre.
     const r = (rot * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
     const cx = tx + (c * size.x) / 2 - (s * size.y) / 2, cy = ty + (s * size.x) / 2 + (c * size.y) / 2;
     return { x: cx - size.x / 2, y: cy - size.y / 2, w: size.x, h: size.y, rotation: Math.round(rot * 100) / 100 };

@@ -162,7 +162,7 @@ export function toPDF(doc, ids, { images = {} } = {}) {
   });
   const xo = offset;
   push(`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${xref.map((x) => String(x).padStart(10, '0') + ' 00000 n \n').join('')}`);
-  push(`trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info << /Producer (Figger) >> >>\nstartxref\n${xo}\n%%EOF\n`);
+  push(`trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R /Info << /Producer (Contorina) >> >>\nstartxref\n${xo}\n%%EOF\n`);
   const outBytes = new Uint8Array(offset);
   let p = 0;
   for (const c of chunks) { outBytes.set(c, p); p += c.length; }

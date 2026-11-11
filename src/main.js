@@ -1,5 +1,5 @@
-// Figger boot: the command runner, app-level commands, keys, toolbar, storage and the two agent doors
-// (window.figger in the page, the NakliOS common rail when hosted). Both doors call the same registry.
+// Contorina boot: the command runner, app-level commands, keys, toolbar, storage and the two agent doors
+// (window.contorina in the page, the NakliOS common rail when hosted). Both doors call the same registry.
 import './commands.js';
 import './commands-vector.js';
 import './commands-layer4.js';
@@ -146,7 +146,7 @@ register(
   } },
   { id: 'edit.copy', label: 'Copy', group: 'Edit', keys: ['Mod+C'], noRail: true, run: () => {
     clip = copyTree(state.selection);
-    if (clip) { clip.pasted = 0; try { navigator.clipboard?.writeText(JSON.stringify({ figger: 1, ...clip })); } catch {} }
+    if (clip) { clip.pasted = 0; try { navigator.clipboard?.writeText(JSON.stringify({ contorina: 1, ...clip })); } catch {} }
   } },
   { id: 'edit.cut', label: 'Cut', group: 'Edit', keys: ['Mod+X'], noRail: true, run: () => { run('edit.copy'); run('edit.delete'); } },
   { id: 'edit.paste', label: 'Paste', group: 'Edit', keys: ['Mod+V'], noRail: true, run: async () => {
@@ -154,7 +154,7 @@ register(
     if (!tree) {
       let text = '';
       try { text = await navigator.clipboard.readText(); } catch {}
-      try { const t = JSON.parse(text); if (t && t.figger) tree = t; } catch {}
+      try { const t = JSON.parse(text); if (t && t.contorina) tree = t; } catch {}
       if (!tree && text && (await importText(text, 'Pasted SVG'))) return;
     }
     if (!tree) return;
@@ -188,7 +188,7 @@ register(
   { id: 'doc.get', label: 'Get document', group: 'File', hidden: true, description: 'Return the whole document as JSON plus the current selection.', run: () => ({ doc: structuredClone(state.doc), selection: state.selection.slice() }) },
   {
     id: 'doc.load', label: 'Replace document', group: 'File', hidden: true, scope: 'destructive',
-    description: 'Replace the open document with a Figger document object (undoable).',
+    description: 'Replace the open document with a Contorina document object (undoable).',
     params: { doc: { type: 'object', required: true } },
     doc(tx, p) {
       const d = validateDoc(structuredClone(p.doc));
@@ -270,7 +270,7 @@ register(
 // (for example a read that never answers) is visible instead of silent.
 async function openGrant(grant, files) {
   const name = (grant && grant.name) || 'file';
-  console.info('[figger] open grant', { name, kind: grant && grant.kind });
+  console.info('[contorina] open grant', { name, kind: grant && grant.kind });
   toast(`Opening ${name}…`);
   try {
     const f = await files.read(grant.token);
@@ -280,10 +280,10 @@ async function openGrant(grant, files) {
       : null;
     if (text == null) throw new Error('NakliOS sent no file contents');
     const fileName = (f && f.name) || name;
-    console.info('[figger] read', fileName, text.length, 'characters');
-    if (/\.figger\.json$/i.test(fileName) || !(await importText(text, fileName))) await loadText(text, fileName);
+    console.info('[contorina] read', fileName, text.length, 'characters');
+    if (/\.contorina\.json$/i.test(fileName) || !(await importText(text, fileName))) await loadText(text, fileName);
   } catch (err) {
-    console.error('[figger] open grant failed', err);
+    console.error('[contorina] open grant failed', err);
     toast(`Could not open ${name}: ${err.message || err}`, 'error');
   } finally {
     try { files.release && files.release(grant.token); } catch {}
@@ -461,7 +461,7 @@ function buildToolbar(bar) {
   const redoB = h('button.icon', { type: 'button', title: `Redo (${keyLabel('Shift+Mod+Z')})`, 'aria-label': 'Redo', on: { click: () => run('edit.redo') } }, '↷');
   const zoom = h('button.zoom', { type: 'button', title: 'Zoom to 100% (Shift+0); Shift+1 fits', on: { click: () => run('view.zoom100') } }, '100%');
   const pal = h('button.icon', { type: 'button', title: `Search commands (${keyLabel('Mod+K')})`, on: { click: () => run('palette.open') } }, `${keyLabel('Mod+K')}`);
-  bar.append(h('div.tb-left', menuBtn, h('span.brand', 'Figger'), h('div.tools', { role: 'toolbar', 'aria-label': 'Tools' }, toolBtns)), h('div.tb-mid', name), h('div.tb-right', undoB, redoB, zoom, pal));
+  bar.append(h('div.tb-left', menuBtn, h('span.brand', 'Contorina'), h('div.tools', { role: 'toolbar', 'aria-label': 'Tools' }, toolBtns)), h('div.tb-mid', name), h('div.tb-right', undoB, redoB, zoom, pal));
   subscribe((what) => {
     toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === state.tool));
     if (document.activeElement !== name) name.value = state.doc.name;
@@ -563,20 +563,20 @@ async function boot() {
   createLayers(layers, app);
   createProps(props, app);
 
-  connectHost({ run: (id, p, o) => run(id, p, o), onTheme: applyHostTheme, onCapabilities: () => onCapabilities(), title: 'Figger' });
+  connectHost({ run: (id, p, o) => run(id, p, o), onTheme: applyHostTheme, onCapabilities: () => onCapabilities(), title: 'Contorina' });
   await waitForHostStorage(1500);
   backendKey = keyOfBackend();
   store = pickStore();
   startSaver();
   await loadWorking();
   nextFrame(() => run('view.fit'));
-  subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · Figger`; });
+  subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · Contorina`; });
 
-  // NakliOS "Open in Figger" (accepts action import): a read-only copy arrives as a token.
+  // NakliOS "Open in Contorina" (accepts action import): a read-only copy arrives as a token.
   const files = globalThis.naklios && globalThis.naklios.files;
   if (files && typeof files.onOpen === 'function') files.onOpen((grant) => openGrant(grant, files));
 
-  // Drop a .figger.json file anywhere to open it.
+  // Drop a .contorina.json file anywhere to open it.
   window.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) e.preventDefault(); });
   window.addEventListener('drop', async (e) => {
     const f = e.dataTransfer?.files?.[0];
@@ -590,19 +590,19 @@ async function boot() {
     try {
       const text = await f.text();
       const r = app.canvas.el.getBoundingClientRect();
-      if (!/\.figger\.json$/i.test(f.name) && (await importText(text, f.name, app.canvas.toWorld(e.clientX - r.left, e.clientY - r.top)))) return;
+      if (!/\.contorina\.json$/i.test(f.name) && (await importText(text, f.name, app.canvas.toWorld(e.clientX - r.left, e.clientY - r.top)))) return;
       await loadText(text, f.name);
     } catch (err) { toast(`Could not open ${f.name}: ${err.message}`, 'error'); }
   });
 }
 
 // The in-page agent face. Same registry, same checks as the NakliOS rail.
-globalThis.figger = Object.freeze({
+globalThis.contorina = Object.freeze({
   version: VERSION,
   commands: () => manifest(),
   run: (id, params) => run(id, params || {}, { source: 'agent' }),
   state: () => structuredClone({ doc: state.doc, selection: state.selection, view: state.view }),
-  help: () => 'figger.commands() lists every command with its params and scope; figger.run(id, params) runs one. Person-only commands (file pickers) are refused; use doc.get and doc.load.',
+  help: () => 'contorina.commands() lists every command with its params and scope; contorina.run(id, params) runs one. Person-only commands (file pickers) are refused; use doc.get and doc.load.',
 });
 
-if (hasDOM) boot().catch((e) => { console.error(e); toast(`Figger failed to start: ${e.message}`, 'error'); });
+if (hasDOM) boot().catch((e) => { console.error(e); toast(`Contorina failed to start: ${e.message}`, 'error'); });

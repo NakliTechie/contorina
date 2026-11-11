@@ -3,7 +3,7 @@ import { h, clear } from './dom.js';
 import { all, keyLabel } from '../registry.js';
 import { rank } from '../fuzzy.js';
 
-const KEY = 'figger.recent';
+const KEY = 'contorina.recent';
 const recent = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } };
 const remember = (id) => { try { localStorage.setItem(KEY, JSON.stringify([id, ...recent().filter((x) => x !== id)].slice(0, 12))); } catch {} };
 

@@ -36,7 +36,7 @@ test('commands.json matches what the page registers, and index.html carries ever
   assert.deepEqual([...RAIL_NAMES].sort(), railEntries().map((e) => e.name).sort());
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   for (const c of m.commands) assert.ok(html.includes(c.name), `${c.name} not literal in index.html (naklios parity lint)`);
-  assert.deepEqual(m.accepts, [{ action: 'import', label: 'Open in Figger', extensions: ['.json', '.svg'] }]); // naklios allows edit (Editor only) or import
+  assert.deepEqual(m.accepts, [{ action: 'import', label: 'Open in Contorina', extensions: ['.json', '.svg'] }]); // naklios allows edit (Editor only) or import
   assert.deepEqual(m.commands.map((c) => c.name).sort(), railEntries().map((e) => e.name).sort());
 });
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Assemble index.html: src/shell.html (with the vendored NakliOS SDK between its markers) plus
 // src/style.css and the src/ ES modules bundled by esbuild into one inline script. Nothing loads
-// from the network at run time. Also writes commands.json, the NakliOS manifest of Figger's commands.
+// from the network at run time. Also writes commands.json, the NakliOS manifest of Contorina's commands.
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -16,7 +16,7 @@ if (!shell.includes('/*APP-STYLE*/') || !shell.includes('/*APP-SCRIPT*/')) throw
 const html = shell.replace('/*APP-STYLE*/', () => css).replace('/*APP-SCRIPT*/', () => js);
 writeFileSync('index.html', html);
 
-// commands.json: what NakliOS lists while Figger is closed (common rail step 2). Generated from the
+// commands.json: what NakliOS lists while Contorina is closed (common rail step 2). Generated from the
 // registry so the manifest cannot drift from the code.
 globalThis.navigator ??= { platform: 'build' };
 await import('./src/commands.js');
@@ -30,10 +30,10 @@ await import('./src/main.js'); // registers the app-shell commands too; it start
 // commands.json and the live registration cannot differ.
 const { railEntries, RAIL_LIMIT } = await import('./src/host.js');
 const entries = railEntries();
-if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; Figger would register ${entries.length}`);
+if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; Contorina would register ${entries.length}`);
 const commands = entries.map(({ name, description, scope, input }) => ({ name, description, scope, input }));
 const manifest = {
-  accepts: [{ action: 'import', label: 'Open in Figger', extensions: ['.json', '.svg'] }],
+  accepts: [{ action: 'import', label: 'Open in Contorina', extensions: ['.json', '.svg'] }],
   commands,
 };
 writeFileSync('commands.json', JSON.stringify(manifest, null, 2) + '\n');

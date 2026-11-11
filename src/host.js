@@ -1,13 +1,13 @@
-// NakliOS host integration (the common rail). Figger's registry is the one source of commands:
+// NakliOS host integration (the common rail). Contorina's registry is the one source of commands:
 // this module publishes it through naklios.experimental_commands.register, maps the host theme onto
-// Figger's CSS tokens, and reports title and readiness. Standalone, every call is a no-op.
+// Contorina's CSS tokens, and reports title and readiness. Standalone, every call is a no-op.
 import { all, inputSchema } from './registry.js';
 
 const nak = () => globalThis.naklios;
 export const hosted = () => !!(nak() && nak().capabilities.hosted);
 
 // The NakliOS host accepts at most 64 commands per app (sys/host/catalog.mjs MAX_COMMANDS), with names
-// matching /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*){0,3}$/. Figger's registry has about 100, so the rail
+// matching /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*){0,3}$/. Contorina's registry has about 100, so the rail
 // carries one entry per area and scope: "<area>.<scope>" with input { command, params }. Grouping by
 // scope keeps the host's grant checks exact (write asks once, destructive goes to review). Person-only
 // acts (file pickers) and view-only tools stay off the rail by name. "help.read" returns each command's
@@ -54,11 +54,11 @@ export function railEntries() {
   const entries = [...groups.values()].map((g) => ({
     name: g.name,
     scope: g.scope,
-    description: `Figger ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(', ')}. Call help.read for a command's parameters.`,
+    description: `Contorina ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(', ')}. Call help.read for a command's parameters.`,
     input: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: g.list.map((c) => c.id), description: 'Which Figger command to run' },
+        command: { type: 'string', enum: g.list.map((c) => c.id), description: 'Which Contorina command to run' },
         params: { type: 'object', description: 'The command\'s own parameters (see help.read)' },
       },
       required: ['command'],
@@ -66,7 +66,7 @@ export function railEntries() {
     commands: g.list.map((c) => c.id),
   }));
   for (const e of entries) if (!RAIL_NAMES.includes(e.name)) throw new Error(`Rail entry ${e.name} is missing from RAIL_NAMES in src/host.js`);
-  if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List Figger commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'A Figger command id; omit to list all' } } }, commands: [] });
+  if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List Contorina commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'A Contorina command id; omit to list all' } } }, commands: [] });
   return entries;
 }
 
@@ -101,11 +101,11 @@ export function connectHost({ run, onTheme, onCapabilities, title }) {
     n.requestCapabilities?.();
     if (title) n.title(title);
   } catch (e) {
-    console.warn('[figger] NakliOS wiring failed', e);
+    console.warn('[contorina] NakliOS wiring failed', e);
   }
 }
 
-// Map the host theme onto Figger's chrome tokens. The canvas keeps its neutral grey so colours read true.
+// Map the host theme onto Contorina's chrome tokens. The canvas keeps its neutral grey so colours read true.
 export function applyHostTheme(t) {
   if (!t || !t.colors) return;
   const c = t.colors, r = document.documentElement.style;

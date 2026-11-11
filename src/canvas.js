@@ -49,7 +49,7 @@ export function createCanvas(wrap, app) {
       drawView(ctx, state.doc, state.view, size, dpr, { skip, background: getComputedStyle(wrap).getPropertyValue('--canvas-bg').trim() || '#F5F5F5' });
       app.renderError = null;
     } catch (err) {
-      if (!app.renderError) { app.renderError = err; console.error('[figger] render failed', err); app.toast?.(`A layer could not be drawn: ${err.message}`, 'error'); }
+      if (!app.renderError) { app.renderError = err; console.error('[contorina] render failed', err); app.toast?.(`A layer could not be drawn: ${err.message}`, 'error'); }
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawOverlay();

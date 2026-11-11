@@ -62,7 +62,7 @@ register(
       const doc = env.state.doc;
       const ids = p.ids && p.ids.length ? p.ids : env.selection.length ? env.selection : doc.children;
       const xml = toAVD(doc, ids);
-      if (!(o && o.source === 'agent') && p.download !== false && typeof document !== 'undefined') download(new Blob([xml], { type: 'application/xml' }), (doc.name || 'figger').replace(/[^\w.-]+/g, '_').toLowerCase() + '.xml');
+      if (!(o && o.source === 'agent') && p.download !== false && typeof document !== 'undefined') download(new Blob([xml], { type: 'application/xml' }), (doc.name || 'contorina').replace(/[^\w.-]+/g, '_').toLowerCase() + '.xml');
       return xml;
     },
   },

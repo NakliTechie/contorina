@@ -48,6 +48,6 @@ export function toAVD(doc, ids) {
   };
   const shift = [1, 0, 0, 1, -b.x, -b.y];
   const body = list.map((id) => { const n = doc.nodes[id]; return walk(id, mul(shift, n.parent ? worldMatrix(doc, n.parent) : IDENT), 1, '  '); }).join('');
-  const note = skipped.size ? `<!-- Figger: ${[...skipped].join(' and ')} skipped; Vector Drawables cannot hold them. -->\n` : '';
+  const note = skipped.size ? `<!-- Contorina: ${[...skipped].join(' and ')} skipped; Vector Drawables cannot hold them. -->\n` : '';
   return `<?xml version="1.0" encoding="utf-8"?>\n${note}<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="${num(b.w)}dp" android:height="${num(b.h)}dp"\n    android:viewportWidth="${num(b.w)}" android:viewportHeight="${num(b.h)}">\n${body}</vector>\n`;
 }

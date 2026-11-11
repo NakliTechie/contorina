@@ -1,4 +1,4 @@
-// The one command registry. Menus, keys, the palette, the window.figger agent face and the
+// The one command registry. Menus, keys, the palette, the window.contorina agent face and the
 // NakliOS common rail all dispatch these ids, so every action has one implementation.
 //
 // A command is { id, label, group, params, keys, scope, personOnly, hidden, doc | run }.

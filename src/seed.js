@@ -4,7 +4,7 @@ import { emptyDoc, Tx, makeNode } from './doc.js';
 import { resolve } from './resolve.js';
 
 export function seedDoc() {
-  const tx = new Tx(emptyDoc('Welcome to Figger'));
+  const tx = new Tx(emptyDoc('Welcome to Contorina'));
   tx.setStyle('sBrand', { type: 'color', name: 'Brand', value: '#0D99FF' });
   tx.setStyle('sInk', { type: 'color', name: 'Ink', value: '#1E1E1E' });
   tx.setStyle('sTitle', { type: 'text', name: 'Title', fontSize: 22, fontFamily: 'Inter', fontWeight: 700, lineHeight: 1.25 });

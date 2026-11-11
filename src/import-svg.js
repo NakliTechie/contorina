@@ -1,5 +1,5 @@
 // SVG import. A small XML parser (no DOM, so Node tests run it) and a converter from SVG elements to
-// Figger layer specs: rect and ellipse stay editable shapes when untransformed or only moved and
+// Contorina layer specs: rect and ellipse stay editable shapes when untransformed or only moved and
 // scaled; everything else becomes a vector path. Groups become unclipped frames.
 import { parsePath, serialize, mapPoints, fitVector, boundsOf } from './vector.js';
 import { mul, IDENT } from './geom.js';

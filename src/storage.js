@@ -1,12 +1,12 @@
 // The app's only storage surface (NakliOS transport-adapter pattern, docs/app-contract.md).
-// Hosted with storage: documents live in apps/figger/documents/ on the person's Folder or Crate through
+// Hosted with storage: documents live in apps/contorina/documents/ on the person's Folder or Crate through
 // naklios.fs. Standalone: File System Access pickers (download/upload fallback) plus a working copy
 // in this browser's localStorage. Both expose the same interface.
 const DIR = 'documents/';
-const WORKING = 'working.figger.json';
-const LS_KEY = 'figger.working';
+const WORKING = 'working.contorina.json';
+const LS_KEY = 'contorina.working';
 const nak = () => globalThis.naklios;
-export const EXT = '.figger.json';
+export const EXT = '.contorina.json';
 
 export function safeName(name) {
   return (String(name || 'Untitled').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim().slice(0, 80) || 'Untitled') + EXT;
@@ -30,7 +30,7 @@ function hostStore() {
 function localStore() {
   let handle = null;
   const hasFSA = typeof showSaveFilePicker === 'function';
-  const types = [{ description: 'Figger document', accept: { 'application/json': [EXT, '.json'] } }];
+  const types = [{ description: 'Contorina document', accept: { 'application/json': [EXT, '.json'] } }];
   return {
     kind: 'local',
     label: () => 'This browser',

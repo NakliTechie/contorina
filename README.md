@@ -1,4 +1,4 @@
-<h1 align="center">Figger</h1>
+<h1 align="center">Contorina</h1>
 
 <p align="center"><b>A design tool in one HTML file: frames, auto layout, components, vectors, variables and prototypes, saved as plain JSON on your own disk.</b></p>
 
@@ -10,30 +10,30 @@
 <img src="https://img.shields.io/badge/runtime%20network-none-0D99FF?style=flat-square" alt="No network at run time">
 </p>
 
-<p align="center"><img src="marketing/hero.png" width="900" alt="Figger with the starter card open: a Button component, two instances in an auto-layout row, the layers panel on the left and the instance's properties on the right"></p>
+<p align="center"><img src="marketing/hero.png" width="900" alt="Contorina with the starter card open: a Button component, two instances in an auto-layout row, the layers panel on the left and the instance's properties on the right"></p>
 
 ## Install
 
 | Where | How |
 |---|---|
-| On the web | Open `https://figger.naklitechie.com` (not deployed yet). |
+| On the web | Open `https://contorina.naklitechie.com` (not deployed yet). |
 | From disk | Download `index.html` and open it in Chrome, Edge, Firefox or Safari. |
-| In NakliOS | Open Figger from the app catalog once it is listed; documents save to your Folder or Crate. |
+| In NakliOS | Open Contorina from the app catalog once it is listed; documents save to your Folder or Crate. |
 | From source | `npm install && npm run build`, then serve the folder and open `index.html`. |
 
-The first visit opens a starter document with a component, two instances and an auto-layout card. Press **⌘K** (Ctrl+K) to search every command, or **?** for the shortcut list. Your working copy saves itself one second after each change; **⌘S** saves a `.figger.json` file wherever you choose. To drive Figger from the browser console or an agent:
+The first visit opens a starter document with a component, two instances and an auto-layout card. Press **⌘K** (Ctrl+K) to search every command, or **?** for the shortcut list. Your working copy saves itself one second after each change; **⌘S** saves a `.contorina.json` file wherever you choose. To drive Contorina from the browser console or an agent:
 
 ```js
-figger.commands()                       // every command with its parameters and scope
-figger.run('node.create', { type: 'frame', x: 0, y: 0, w: 320, h: 200 })
-figger.run('export.svg', {})            // returns the SVG as a string
+contorina.commands()                       // every command with its parameters and scope
+contorina.run('node.create', { type: 'frame', x: 0, y: 0, w: 320, h: 200 })
+contorina.run('export.svg', {})            // returns the SVG as a string
 ```
 
 ## Why
 
-You want to design a screen, keep a component library and hand someone code or a PDF, and you do not want an account, a subscription or a file that only opens in someone else's cloud. Figger keeps the document as readable JSON on your disk and runs entirely in the page. It has frames with auto layout (row, column, wrap, grid), constraints, components with variants and properties, colour, text and effect styles, variables with modes, the pen and booleans, gradients, images, shadows and blurs, mixed text styles, prototypes with Smart Animate, pages and an inspect mode. It imports SVG and Figma REST JSON and exports PNG, JPG, WebP, SVG, PDF, Android XML, HTML/CSS and React. Live collaboration, plugins, comments and `.fig` files are not built; `plan/research/parity-figcraft.md` lists every gap.
+You want to design a screen, keep a component library and hand someone code or a PDF, and you do not want an account, a subscription or a file that only opens in someone else's cloud. Contorina keeps the document as readable JSON on your disk and runs entirely in the page. It has frames with auto layout (row, column, wrap, grid), constraints, components with variants and properties, colour, text and effect styles, variables with modes, the pen and booleans, gradients, images, shadows and blurs, mixed text styles, prototypes with Smart Animate, pages and an inspect mode. It imports SVG and Figma REST JSON and exports PNG, JPG, WebP, SVG, PDF, Android XML, HTML/CSS and React. Live collaboration, plugins, comments and `.fig` files are not built; `plan/research/parity-figcraft.md` lists every gap.
 
-Figger ports the architecture of [storytold/figcraft](https://github.com/storytold/figcraft) (one command registry, a persistent document model, instances materialised from their mains) and uses the browser's own canvas, text shaping and accessibility tree in place of FigCraft's Rust renderer and UI.
+Contorina ports the architecture of [storytold/figcraft](https://github.com/storytold/figcraft) (one command registry, a persistent document model, instances materialised from their mains) and uses the browser's own canvas, text shaping and accessibility tree in place of FigCraft's Rust renderer and UI.
 
 ## Results
 
@@ -51,7 +51,7 @@ Give a layer an interaction in the Prototype section (navigate, overlay, back or
 
 ## Where your files live
 
-Standalone, the working copy lives in this browser's storage and **⌘S** writes a file through your browser's file picker. Inside NakliOS, Figger saves to `apps/figger/` on the storage you connected, and Folder and Crate keep separate documents.
+Standalone, the working copy lives in this browser's storage and **⌘S** writes a file through your browser's file picker. Inside NakliOS, Contorina saves to `apps/contorina/` on the storage you connected, and Folder and Crate keep separate documents.
 
 ## Commands
 
@@ -62,7 +62,7 @@ npm run check     # build, test, and confirm the vendored NakliOS SDK matches th
 node scripts/vendor-naklios-sdk.mjs --file src/shell.html   # refresh the inlined SDK
 ```
 
-Every menu item, shortcut and palette entry runs a command from one registry. The same registry is `window.figger` in the page and registers on the NakliOS common rail through `naklios.experimental_commands`; `commands.json` lists the document commands for NakliOS while Figger is closed.
+Every menu item, shortcut and palette entry runs a command from one registry. The same registry is `window.contorina` in the page and registers on the NakliOS common rail through `naklios.experimental_commands`; `commands.json` lists the document commands for NakliOS while Contorina is closed.
 
 ## Verify it yourself
 
