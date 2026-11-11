@@ -70,10 +70,10 @@ Every menu item, shortcut and palette entry runs a command from one registry. Th
 npm run check
 ```
 
-The check fails if the build breaks, if any of the 55 Node tests fails, or if the inlined SDK differs from `https://naklios.dev/sdk/naklios.js`; CI also fails when `index.html` or `commands.json` differs from a fresh build. Ten of the tests feed hostile documents, SVG files and agent calls (script injection, endless loops, structure rewrites). The editor core was driven with real input in Chrome on 2026-11-11, and layers 3 to 5 with synthetic events in the page; those drives are not committed tests.
+The check fails if the build breaks, if any of the 68 Node tests fails, or if the inlined SDK differs from `https://naklios.dev/sdk/naklios.js`; CI also fails when `index.html` or `commands.json` differs from a fresh build. Ten of the tests feed hostile documents, SVG files and agent calls (script injection, endless loops, structure rewrites). The editor core was driven with real input in Chrome on 2026-11-11, and layers 3 to 5 with synthetic events in the page; those drives are not committed tests.
 
 ## License
 
-Not chosen yet. Ported ideas from FigCraft (MIT OR Apache-2.0) and the inlined NakliOS SDK (MIT) are credited in `NOTICE`.
+MIT, see `LICENSE`. Ported ideas from FigCraft (MIT OR Apache-2.0) and the inlined NakliOS SDK (MIT) are credited in `NOTICE`.
 
 Plan and decisions: `plan/` (not in git) · study of FigCraft: `plan/research/figcraft-study.md`

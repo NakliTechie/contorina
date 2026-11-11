@@ -17,5 +17,6 @@
   },
   "dependencies": {
     "polygon-clipping": "0.15.7"
-  }
+  },
+  "license": "MIT"
 }
