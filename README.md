@@ -10,7 +10,7 @@
 <img src="https://img.shields.io/badge/runtime%20network-none-0D99FF?style=flat-square" alt="No network at run time">
 </p>
 
-<p align="center"><img src="marketing/hero.png" width="900" alt="Contorina with the starter card open: a Button component, two instances in an auto-layout row, the layers panel on the left and the instance's properties on the right"></p>
+<p align="center"><img src="marketing/hero.png" width="900" alt="Contorina with its starter document open: a three-variant Button set, an auto-layout card and a gradient poster with a glass panel, the pages and layers panels on the left and document styles and components on the right"></p>
 
 ## Install
 
