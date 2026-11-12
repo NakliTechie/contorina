@@ -16,7 +16,7 @@
 
 | Where | How |
 |---|---|
-| On the web | Open `https://contorina.naklitechie.com` (not deployed yet). |
+| On the web | Open `https://naklios.dev/apps/contorina/` (not deployed yet). |
 | From disk | Download `index.html` and open it in Chrome, Edge, Firefox or Safari. |
 | In NakliOS | Open Contorina from the app catalog once it is listed; documents save to your Folder or Crate. |
 | From source | `npm install && npm run build`, then serve the folder and open `index.html`. |
