@@ -30,10 +30,10 @@ await import('./src/main.js'); // registers the app-shell commands too; it start
 // commands.json and the live registration cannot differ.
 const { railEntries, RAIL_LIMIT } = await import('./src/host.js');
 const entries = railEntries();
-if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; Contorina would register ${entries.length}`);
+if (entries.length > RAIL_LIMIT) throw new Error(`The NakliOS rail takes at most ${RAIL_LIMIT} commands; nDesign would register ${entries.length}`);
 const commands = entries.map(({ name, description, scope, input }) => ({ name, description, scope, input }));
 const manifest = {
-  accepts: [{ action: 'import', label: 'Open in Contorina', extensions: ['.json', '.svg'] }],
+  accepts: [{ action: 'import', label: 'Open in nDesign', extensions: ['.json', '.svg'] }],
   commands,
 };
 writeFileSync('commands.json', JSON.stringify(manifest, null, 2) + '\n');

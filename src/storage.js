@@ -30,7 +30,7 @@ function hostStore() {
 function localStore() {
   let handle = null;
   const hasFSA = typeof showSaveFilePicker === 'function';
-  const types = [{ description: 'Contorina document', accept: { 'application/json': [EXT, '.json'] } }];
+  const types = [{ description: 'nDesign document', accept: { 'application/json': [EXT, '.json'] } }];
   return {
     kind: 'local',
     label: () => 'This browser',
