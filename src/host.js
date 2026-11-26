@@ -54,11 +54,11 @@ export function railEntries() {
   const entries = [...groups.values()].map((g) => ({
     name: g.name,
     scope: g.scope,
-    description: `Contorina ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(', ')}. Call help.read for a command's parameters.`,
+    description: `nDesign ${g.group.toLowerCase()} (${g.scope}). Pass command and params; commands: ${g.list.map((c) => `${c.id} (${c.label})`).join(', ')}. Call help.read for a command's parameters.`,
     input: {
       type: 'object',
       properties: {
-        command: { type: 'string', enum: g.list.map((c) => c.id), description: 'Which Contorina command to run' },
+        command: { type: 'string', enum: g.list.map((c) => c.id), description: 'Which nDesign command to run' },
         params: { type: 'object', description: 'The command\'s own parameters (see help.read)' },
       },
       required: ['command'],
@@ -66,7 +66,7 @@ export function railEntries() {
     commands: g.list.map((c) => c.id),
   }));
   for (const e of entries) if (!RAIL_NAMES.includes(e.name)) throw new Error(`Rail entry ${e.name} is missing from RAIL_NAMES in src/host.js`);
-  if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List Contorina commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'A Contorina command id; omit to list all' } } }, commands: [] });
+  if (!groups.has('help.read')) entries.push({ name: 'help.read', scope: 'read', description: 'List nDesign commands with their parameter schemas and scopes, or describe one command.', input: { type: 'object', properties: { command: { type: 'string', description: 'An nDesign command id; omit to list all' } } }, commands: [] });
   return entries;
 }
 

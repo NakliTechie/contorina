@@ -166,9 +166,9 @@ const NUM_KEYS = ['x', 'y', 'w', 'h', 'rotation', 'opacity', 'strokeWidth', 'fon
 const finite = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 export function validateDoc(d) {
-  if (!d || typeof d !== 'object') throw new Error('Not a Contorina document');
+  if (!d || typeof d !== 'object') throw new Error('Not an nDesign document');
   if (!Array.isArray(d.children) || !d.nodes || typeof d.nodes !== 'object') throw new Error('Document lacks children or nodes');
-  if (d.version > FORMAT_VERSION) throw new Error(`Document format ${d.version} is newer than this Contorina (${FORMAT_VERSION})`);
+  if (d.version > FORMAT_VERSION) throw new Error(`Document format ${d.version} is newer than this nDesign (${FORMAT_VERSION})`);
   for (const id of d.children) if (!d.nodes[id]) throw new Error(`Missing node ${id}`);
   const nodes = {};
   for (const [id, raw] of Object.entries(d.nodes)) {

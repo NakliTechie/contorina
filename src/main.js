@@ -188,7 +188,7 @@ register(
   { id: 'doc.get', label: 'Get document', group: 'File', hidden: true, description: 'Return the whole document as JSON plus the current selection.', run: () => ({ doc: structuredClone(state.doc), selection: state.selection.slice() }) },
   {
     id: 'doc.load', label: 'Replace document', group: 'File', hidden: true, scope: 'destructive',
-    description: 'Replace the open document with a Contorina document object (undoable).',
+    description: 'Replace the open document with an nDesign document object (undoable).',
     params: { doc: { type: 'object', required: true } },
     doc(tx, p) {
       const d = validateDoc(structuredClone(p.doc));
@@ -461,7 +461,7 @@ function buildToolbar(bar) {
   const redoB = h('button.icon', { type: 'button', title: `Redo (${keyLabel('Shift+Mod+Z')})`, 'aria-label': 'Redo', on: { click: () => run('edit.redo') } }, '↷');
   const zoom = h('button.zoom', { type: 'button', title: 'Zoom to 100% (Shift+0); Shift+1 fits', on: { click: () => run('view.zoom100') } }, '100%');
   const pal = h('button.icon', { type: 'button', title: `Search commands (${keyLabel('Mod+K')})`, on: { click: () => run('palette.open') } }, `${keyLabel('Mod+K')}`);
-  bar.append(h('div.tb-left', menuBtn, h('span.brand', 'Contorina'), h('div.tools', { role: 'toolbar', 'aria-label': 'Tools' }, toolBtns)), h('div.tb-mid', name), h('div.tb-right', undoB, redoB, zoom, pal));
+  bar.append(h('div.tb-left', menuBtn, h('span.brand', 'nDesign'), h('div.tools', { role: 'toolbar', 'aria-label': 'Tools' }, toolBtns)), h('div.tb-mid', name), h('div.tb-right', undoB, redoB, zoom, pal));
   subscribe((what) => {
     toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.tool === state.tool));
     if (document.activeElement !== name) name.value = state.doc.name;
@@ -563,14 +563,14 @@ async function boot() {
   createLayers(layers, app);
   createProps(props, app);
 
-  connectHost({ run: (id, p, o) => run(id, p, o), onTheme: applyHostTheme, onCapabilities: () => onCapabilities(), title: 'Contorina' });
+  connectHost({ run: (id, p, o) => run(id, p, o), onTheme: applyHostTheme, onCapabilities: () => onCapabilities(), title: 'nDesign' });
   await waitForHostStorage(1500);
   backendKey = keyOfBackend();
   store = pickStore();
   startSaver();
   await loadWorking();
   nextFrame(() => run('view.fit'));
-  subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · Contorina`; });
+  subscribe((what) => { if (what.has('doc') && !what.has('preview')) document.title = `${state.doc.name} · nDesign`; });
 
   // NakliOS "Open in Contorina" (accepts action import): a read-only copy arrives as a token.
   const files = globalThis.naklios && globalThis.naklios.files;
@@ -605,4 +605,4 @@ globalThis.contorina = Object.freeze({
   help: () => 'contorina.commands() lists every command with its params and scope; contorina.run(id, params) runs one. Person-only commands (file pickers) are refused; use doc.get and doc.load.',
 });
 
-if (hasDOM) boot().catch((e) => { console.error(e); toast(`Contorina failed to start: ${e.message}`, 'error'); });
+if (hasDOM) boot().catch((e) => { console.error(e); toast(`nDesign failed to start: ${e.message}`, 'error'); });
